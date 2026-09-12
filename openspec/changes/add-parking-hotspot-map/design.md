@@ -1,219 +1,280 @@
 ## Context
 
-See `proposal.md` — Why for motivation. This section records only what was measured about the source data, because nearly every decision below follows from it.
+See `proposal.md` — Why for motivation. This document records the decisions the shipped pipeline actually embodies, and preserves the ones an earlier draft of this change got wrong along with the evidence that overturned them.
 
-The repository is greenfield: OpenSpec scaffolding only, no application code or dependency manifests.
+`src/hotspots.py` is the whole pipeline: roughly 520 lines of Python 3.12 standard library, no dependencies, no install, no keys. `web/template.html` plus `web/map-network.json` are the board's build inputs. `out/` is generated. `.github/workflows/nightly.yml` runs it at 05:30 Atlantic and commits the result.
 
-Three public ArcGIS FeatureServer tables at `services2.arcgis.com/11XBiaBYA9Ep0yNJ` were inspected directly. All are non-spatial tables (no ArcGIS geometry), all cap responses at 1000 rows, all refresh weekly.
+Three HRM ArcGIS layers, all public, all non-spatial tables except the census layer:
 
-**`Cityworks_Service_Requests`** — 477,343 rows. Fields: `REQUEST_ID`, `DATE_INITIATED`, `DATE_CLOSED`, `DESCRIPTION`, `INITIATED_BY`, `PRIORITY`, `ADDRESS`, `COMMUNITY`, `DISTRICT`, `REQUEST_CATEGORY`, `RESOLUTION`, `LATITUDE`, `LONGITUDE`, `STATUS`, `DEPT_RESPONSIBILITY`, `WORK_ORDER`. `PARKING` is the largest category at 121,633, of which `Illegally Parked Vehicle` is 110,579 with coordinates present on 108,404 (98%). Parking records span 2020 to 2026-09-05 and have more than doubled annually (10,146 in 2020 → 22,017 in 2025).
+| Layer | Rows | Role |
+|---|---:|---|
+| `Cityworks_Service_Requests` | 477,343 | one row per call; address, coordinates, timestamps, channel, resolution |
+| `Cityworks_Service_Requests_Custom_Fields` | 1,153,448 | key-value, joined by request id; violation, tow, ownership, vehicle |
+| `Census_2021_Dissemination_Areas` | 610 polygons | the neighbourhood grain, with a dwelling count |
 
-**`Cityworks_Service_Requests_Custom_Fields`** — 1,153,448 rows, key-value, related by request id one-to-many. HRM's metadata states this table "must be used in conjunction with" the main table. Every parking record carries seven fields, including `Alleged Violation` (71 distinct values), `Vehicle Was Towed`, and `Property Ownership`.
-
-**`311_Call_Details`** — 4,961,240 rows, 2017 to 2026. Fields: `OBJECT_ID`, `CALL_ID`, `QUEUE_NAME`, `OUTCOME`, `WRAPUP_NAME`, `ARRIVAL_DATETIME`, `TALK_TIME_IN_SECONDS`, `DURATION_IN_SECONDS`. No address, no coordinates, no request identifier. 255,314 rows carry a parking-enforcement wrap code.
-
-Measured distributions that drive thresholds and sizing are quoted inline under the relevant decision.
+The blocked-driveway selection is 9,791 calls, 2020 to 2026-09-04, yielding 363 doorways still calling and 71 blocks holding 283 of them.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- One clustering computation feeding both renderers, so the map and the report cannot disagree.
-- A hot spot representation that survives replacing grid binning with density-based clustering, without changing either renderer.
-- Every source defect corrected in one place during ingest, so no consumer has to know about them.
-- Interpretation limits carried in the data structures, not left to whoever writes the UI copy.
+- One run produces every output, so the board and the briefs cannot disagree.
+- Run with no person, no install and no credentials, against public endpoints.
+- Carry each interpretation limit in the outputs themselves, because briefs circulate without their context.
+- Keep the pipeline reusable across violation types by argument rather than by edit.
 
 **Non-Goals:**
 
-- Live querying of the portal per request. Ingest is a batch snapshot.
-- Any spatial database, tiling service, or spatial index. At ~110k rows the working set fits in memory.
-- Statistical hot spot testing (Getis-Ord Gi\*) and density-based clustering. Both are anticipated by the design but out of scope here.
-- Per-record linkage between calls and service requests. Ruled out below.
+- Any persistence layer. The run is stateless and re-queries the source.
+- Any served API or build step. The board is a file.
+- Time-of-day analysis. Rejected on evidence; see R1.
+- Effect measurement of an installed remedy, and per-address remedy choice.
 
 ## Decisions
 
-### D1. Coordinates are the canonical location key; address text is display-only
+### D1. Select from the custom-fields side first, then fetch those calls by id
 
-`ADDRESS` cannot be a grouping key. The same physical location appears under multiple spellings depending on postal code presence:
+The violation type is not on the call record — it lives in the key-value layer. So selection queries that layer for request ids whose alleged violation matches, then fetches those requests by id in chunks.
+
+This inverts the obvious order (fetch all parking calls, then filter) and is far cheaper for a narrow slice: 9,791 ids instead of paging 121,633 parking calls to discard 92 per cent of them.
+
+### D2. Match the violation as a case-insensitive substring
+
+HRM files one problem under more than one label. Verified live:
 
 ```
-5214 GERRISH ST,  HALIFAX,  B3K 5K3   297
-5214 GERRISH ST,  HALIFAX             205    same place
-827 BEDFORD HWY,  BEDFORD,  B4A 0J1   286
-827 BEDFORD HWY,  BEDFORD             182    same place
+Blocking Driveway (DISPATCH)   9,729
+DRIVEWAY                          62
+                        total   9,791
 ```
 
-HRM's metadata also confirms the field mixes grammars: "civic address, street name, street intersections, building name and park name". Roughly 245 of the top parking locations are intersection-form (`WOODILL ST & AGRICOLA ST`) with no postal code.
+Substring matching merges both. The run prints the labels it resolved to, so an operator can see what was included.
 
-Binning on coordinates makes both problems vanish — variants of one address share a coordinate and land in one area. A prototype run on 2025 data confirmed top areas contain 28–40 distinct address spellings each; string grouping would have shattered every one of them.
+*Note on a related trap:* grouping on `CUSTOM_FIELD_VALUE` through the service appears to be case-insensitive — the same count came back once as `Other` and once as `OTHER` — so the service cannot be trusted to enumerate case variants. Substring matching sidesteps this; a rule built on exact labels would not.
 
-*Alternative considered:* normalize address strings into a canonical form. Rejected — it requires a parser per grammar, and still cannot merge an intersection with the civic addresses on the same corner. Coordinates already encode what the parser would try to recover.
+### D3. The doorway is the unit of action; the block is the unit of diagnosis
 
-### D2. Fixed-area binning, with the area size configurable and defaulted above 175 m
+Two levels, deliberately:
 
-A prototype at 175 m over 2025 (21,744 records) produced 2,726 occupied areas, and showed that 175 m **splits corridors across adjacent areas**:
+```
+call --> doorway (cleaned address)  --> block (census dissemination area)
+         "where the bollard goes"       "whether a bollard is the answer"
+```
+
+The doorway is primary because the remedy is physical and installed at one address; no coarser unit can say where to put it. The block exists because several doorways all still calling is one problem, not several, and a sign at each address is the wrong answer to it.
+
+The bridge between them is `block_doorways_calling`, carried on every doorway row. Reads 1: install the bollard. Reads 10: the block needs a permit zone, curb management or a parking study.
+
+The earlier draft of this change forbade address keying outright. That was too strong — it assumed the unit of interest is an area, when the unit of *action* is a doorway.
+
+### D4. Reduce the address by string, and say so
+
+The address field carries community and postal code, so one doorway appears under several spellings:
+
+```
+5214 GERRISH ST,  HALIFAX,  B3K 5K3
+5214 GERRISH ST,  HALIFAX            same place
+```
+
+Taking the text before the first comma and collapsing whitespace merges them in one line, with no per-grammar parser. It is a string reduction, not a geocode, and some doorways still split — stated in every brief rather than hidden.
+
+The earlier draft rejected this as requiring "a parser per grammar." It does not. Coordinate keying remains the better answer and is the natural next step (see R2), but the interim is cheap and honest about its residual.
+
+### D5. Locate a doorway at the median of its calls, and test containment locally
+
+A doorway's location is the median latitude and longitude of its calls, so one mistyped coordinate cannot move it.
+
+Containment against the 610 census polygons runs locally: a bounding-box prefilter, then an even-odd ray cast across every ring so interior holes exclude correctly. The alternative is one server request per address. Verified against the service's own spatial query on six addresses, 6 of 6 matching.
+
+### D6. Census dissemination areas are the neighbourhood grain
+
+Four candidates were tested:
+
+| Candidate | Result |
+|---|---|
+| `COMMUNITY` on the call record | 7,651 of 9,791 driveway calls say `HALIFAX` — rejected |
+| Community Boundaries, 200 polygons | `HALIFAX` holds 3,121 of 4,255 addresses — same failure |
+| Community Plan Areas, 22 polygons | far too coarse — rejected |
+| Street name, 1,039 groups | works and reads well, but weaker: top 20 streets hold 25 per cent of recent calls against 35 per cent for the top 20 blocks. Kept as a column and used to name blocks |
+
+Census dissemination areas win on two counts: they are the sharper cut, and they carry `DATDWELL20`.
+
+The earlier draft rejected "administrative boundaries such as postal areas or districts" as too coarse on the strength of the `COMMUNITY` failure alone. That dismissed a whole family on its worst member.
+
+### D7. Normalize block load by dwellings, not only by time
+
+`DATDWELL20` is the denominator that stops a dense block outranking a genuinely worse one just for having more front doors, and it arrives with the census join at no extra cost.
+
+This is an *exposure* denominator. The earlier draft normalized only by time — requests per year — which a fixed-area grid has no way to improve on, because a hexbin carries no dwelling count. This is the concrete advantage the census grain has over a grid.
+
+The rate spans the whole block rather than the street the calls are on, which is stated wherever it is published.
+
+### D8. Rank doorways by calls still arriving, discounted by enforcement applied
+
+`calls_12mo * (1 - tow_rate)`, with any doorway carrying no call in twelve months dropped outright.
+
+An all-time ranking put 155 dead addresses onto a 406-row list — 38 per cent of it — one of which had not called since 2024-01-22. A work list of stale addresses is the most expensive kind of error, because a person spends the morning on it.
+
+Blocks rank by number of still-calling doorways first, then per-dwelling rate. Spread ranks first because it is what separates a block-wide problem from one bad address.
+
+### D9. The tow flag is the only enforcement outcome; `RESOLUTION` is discarded
+
+HRM publishes no ticketing field — not among the custom field names, and `RESOLUTION` carries no ticket value. Its distribution for parking is 95.1 per cent `Requested Service Provided`, consistent with a default applied at closure rather than a per-case judgement.
+
+So a call with no tow is a call with **no recorded outcome**, not a call where nothing was done. That phrasing is required in the specs because the weaker claim is the defensible one.
+
+The earlier draft contradicted itself here: it described `RESOLUTION` as a probable default and its derived rate as a lower bound, then made `RESOLUTION` the primary outcome classifier anyway, which would have labelled about 94 per cent of calls "actioned" off that same default. Discarding the field resolves the tension.
+
+### D10. Vehicle identity from make, model and colour, reported as a floor
+
+There is no plate in the data. Make plus model plus colour is a rough identity: two identical cars count as one, so a distinct count is a floor and never a ceiling.
+
+It is enough for the finding — 2,473 distinct vehicles across 2,588 calls, 96 per cent unique — because the direction of the bias is known and runs against the claim. Sparse coverage is the real hazard: one listed address records a vehicle on 1 of its 11 calls, so `vehicles_seen` must be published beside `vehicles_distinct` or the ratio misleads.
+
+### D11. The board is one self-contained file
+
+Python string-substitutes the data and the map geometry into `web/template.html` and writes a single ~620 KB HTML file. No server, no install, no account, no build step, and no framework.
+
+This follows from who uses it. A work list that needs infrastructure to open is a work list nobody opens, and the team that installs bollards is not going to run a dev server. It also makes the board mailable and archivable: the committed file *is* the record of that day's list.
+
+The earlier draft specified a Python backend serving JSON to a TypeScript frontend. That stack does not exist in the repository and would add an operational dependency for no gain at this scale, since the data is small enough to embed whole.
+
+### D12. Map geometry is embedded, not fetched
+
+The map draws HRM's own street network from `web/map-network.json`, embedded at build time rather than loaded from a tile service.
+
+Two reasons. A single file cannot depend on an external service and still open anywhere. And where the board is hosted as a sandboxed page, external image and network requests are blocked outright, so embedded vector geometry is the only approach that works in both settings.
+
+### D13. Shared triage state where available, browser storage otherwise, always disclosed
+
+Decisions persist to shared storage offered by the hosting environment, with live updates, falling back to the viewer's own browser when that is absent.
+
+The disclosure is the load-bearing part. A viewer who believes their triage reached colleagues when it sat in their own browser is worse off than one told plainly it is local, so the board states which mode is in effect and says so again if live updates drop.
+
+### D14. Stateless runs against the live source
+
+No snapshot, no database. Each run re-queries the layers.
+
+At this scope the snapshot buys nothing: the selection is ~33 id-chunk fetches plus 610 census polygons, and the scheduled job runs nightly against a weekly-refreshed source. A mid-run failure repeats the run, which is acceptable for a nightly job and was the explicit trade.
+
+The earlier draft required a resumable snapshot store. That was sized for a 110-page all-parking pull and does not apply to a violation-scoped selection.
+
+### D14a. The retry wrapper does not cover every source fetch — the implementation does not yet
+
+Retry is meant to be uniform across every fetch under D14, but it is not. `query()` retries a failed request up to four times with a delay between attempts, and every call and custom-field fetch goes through it. `fetch_blocks()`, which retrieves the 610 census polygons, calls `urlopen` directly and raises immediately on the first failure.
+
+The asymmetry matters because the census fetch runs once per invocation regardless of how narrow the violation selection is, so it is proportionally the request most exposed to a single transient failure ending the whole run. It was very likely an oversight rather than a considered choice — nothing in `docs/` argues for treating the two fetches differently.
+
+### D15. Timestamps convert with daylight saving — the implementation does not yet
+
+Source timestamps are UTC and Halifax runs UTC−3 in summer, UTC−4 in winter. Conversion must be daylight-saving-aware per timestamp.
+
+`src/hotspots.py:37` applies a constant `-3`. Across a 2020–2026 range every record outside daylight saving is an hour out. The published hour-of-day figures in `docs/` were computed this way, so those specific numbers are an hour off for winter records — the conclusion they support survives easily, the figures are not exact.
+
+This is the one place the earlier draft was right and the code is wrong, and it stays as an open task rather than being written down as intended behaviour.
+
+### D16. Every output carries its run provenance — the implementation does not yet
+
+Two gaps compound each other.
+
+Nothing stamps the time a run executed. The briefs name the most recent call in the data; the board asserts it was "regenerated from the live service" without a date. Since the scheduled job commits `out/` automatically, a job that has been failing for a week produces a board indistinguishable from a fresh one.
+
+And the recency window is anchored to the data, not the clock:
+
+```python
+latest = max(to_local(c["DATE_INITIATED"]) for c in calls if c["DATE_INITIATED"])
+recent_from = latest - datetime.timedelta(days=365)
+```
+
+If the source stalls, "still calling in the last 12 months" quietly becomes "in the 12 months before whenever the data stopped." Neither the window's anchor nor the staleness is visible to a reader.
+
+### D17. The headline figures must come from the pipeline, not from a one-off analysis
+
+`product.md:82` states plainly: "Every number in this folder is produced by `src/hotspots.py`." Two of the numbers doing the most work for the product's central claim are not.
+
+**Closure time.** `DATE_CLOSED` is fetched at `src/hotspots.py:188` and used nowhere else. The 41-minute figure opening both `README.md` and `product.md` has no corresponding computation.
+
+**Recurrence split by tow status.** `build()` computes `repeats` per doorway from the same-address time series, but never partitions it by whether the doorway's calls were towed. The 44.7 per cent against 44.6 per cent comparison — the number that carries the entire "a tow does not change anything" argument — exists only in hand-written prose in `README.md`, `decisions.md`, and `product.md`, and appears in none of `out/watchlist.csv`, `out/watchlist.md`, `out/blocks.csv`, `out/blocks.md`, or the board.
+
+This is a bigger risk than the closure-time gap. A stray number in an opening line is a citation error; an unreproducible number behind the product's one-sentence thesis is a claim nobody re-running the pipeline can check. Both are cheap to close, since every field either figure needs is already retrieved — computing them is a matter of adding the aggregation and the output line, not a new query.
+
+## Rejected, with the evidence
+
+Kept rather than deleted, because each was argued at length in the earlier draft of this change and the reasoning is worth not re-deriving.
+
+### R1. Time of day as an analysis dimension — disproven
+
+The earlier draft required a day-of-week by time-of-day profile on every hot spot, with peak identification, and justified it with sparsity arithmetic. It was built, tested and removed.
+
+`DATE_INITIATED` is when a staff member keyed the call, not when the driveway was blocked. The `INTERNAL` channel carries 85 per cent of these calls and records 6 out of 8,344 between 21:00 and 07:00, peaking at 13:00; the citizen-typed `311 Online` channel spreads across all 24 hours and peaks at 18:00. Pooled, any hour-of-day finding measures office hours.
+
+Tested properly rather than against a naive null: against a matched null the observed 58.9 per cent sits against a null mean of 48.8 per cent, and only 17 of 58 addresses beat their own 95th percentile. Out of sample a per-address tuned window scores 47.5 per cent against 41.7 per cent for one city-wide window, and weekday tuning *loses*, 35.7 against 37.9.
+
+The earlier draft read the hard 08:00 onset as an enforcement shift start and treated it as real signal. It is an intake artifact: a driveway blocked at 02:00 is keyed when the office opens. What survives is the channel split as a *timestamp-reliability* signal, which is why `parking-data-ingest` requires the channel be exposed and any time-of-day claim be split by it or qualified.
+
+### R2. A coordinate-keyed fixed-area grid as the primary unit — superseded, not wrong
+
+The earlier draft proposed binning on coordinates into 300–400 m cells, having measured that 175 m splits corridors:
 
 ```
 AGRICOLA ST, HILFORD ST     122  +  MCCULLY ST, AGRICOLA ST  111
 SOUTH PARK ST, LUCKNOW ST   148  +  SOUTH PARK ST, ANNANDALE 135
 QUINPOOL RD, QUINGATE PL    191  +  QUINPOOL RD, PEPPERELL    95
-BENTLY DR, WASHMILL LAKE     98  +  BENTLY DR                 93
 ```
 
-Each pair is one problem reported as two mid-ranked entries, which is precisely the fragmentation this change exists to remove. Corridors are the dominant hot spot shape in a city, so the default area size must be large enough to hold one.
+That measurement stands, and coordinate keying is strictly better than string reduction. It is not the primary unit here because a grid cell cannot tell you where to install a bollard and carries no dwelling count. The doorway-then-block structure answers both.
 
-Decision: make area size a parameter, default it coarser than 175 m (in the 300–400 m range), and tune it against the corridor cases above during implementation. A hierarchical indexing scheme whose areas nest is preferred over a naive latitude/longitude grid, for two reasons: nesting supports rolling areas up when zoomed out, matching how traffic layers change detail with zoom; and an equirectangular grid's areas are visibly distorted at Halifax's latitude.
+This becomes the right approach at wider scope. Running the pipeline on `No Parking Sign` — 27,302 calls, larger than blocked driveways — is where string reduction strains and coordinate binning starts to earn its place.
 
-*Alternatives considered:* (a) 175 m as specified — rejected on the evidence above; (b) merging contiguous above-threshold areas into one hot spot — deferred, it is most of the way to density-based clustering and belongs with that upgrade; (c) administrative boundaries such as postal areas or districts — rejected as far too coarse, since `COMMUNITY` alone puts 68% of records in "HALIFAX".
+### R3. `RESOLUTION`-based outcome classification — discarded, see D9.
 
-### D3. Hot spot threshold is a normalized rate, calibrated against the measured distribution
+### R4. The 311 call comparison — dataset dropped
 
-The literal reading of "multiple actions" is unusable. Measured over 2025 at 175 m:
+The earlier draft required a bucketed comparison of 311 parking-call volume against service-request volume, having correctly established that no per-record join is possible: `311_Call_Details` carries `CALL_ID`, `QUEUE_NAME`, `OUTCOME`, `WRAPUP_NAME`, `ARRIVAL_DATETIME` and talk times — no address, no coordinates, no request identifier, and `OUTCOME` is 99.5 per cent `Handled`, an agent disposition rather than a municipal one.
 
-```
-areas with >=   2 requests:  1829  (67% of occupied areas, 95.9% of requests)
-areas with >=  25 requests:   212  (49.7% of requests)
-areas with >=  50 requests:    75  (28.4% of requests)
-areas with >= 100 requests:    17  (10.8% of requests)
-areas with >= 200 requests:     0
-```
+The independent conclusion in `docs/parking-hotspots/data-sources.md` is the same, and the dataset is simply not used. The aggregate finding it would have supported — roughly 255,000 parking-enforcement calls against about 117,000 parking service requests — is real but says nothing about any particular doorway, and the product is a doorway list. The layer also carries a timestamp HRM documents as shifted 3–4 hours from true UTC, in the opposite direction to the requests layer, so any comparison needs two different corrections.
 
-A threshold of 2 marks two thirds of occupied areas — a uniform wash conveying nothing. Around 25 requests/year (roughly one per fortnight) is where "hot" starts to mean something, and the 212 areas at that level account for half of all activity.
+### R5. A snapshot database with resumable ingest — see D14.
 
-The threshold is therefore expressed as **requests per year**, not raw count, so that changing the analysis date range does not change what qualifies. Severity tiers derive from the same normalized rate, with boundaries published alongside the hot spot set so the legend and report read them rather than hardcoding them.
+### R6. Severity tiers and per-year rate normalization — poor fit
 
-*Alternative considered:* percentile-based ("top 5% of areas"). Rejected as the default because it guarantees a populated map even when there is genuinely little activity, which misleads; an absolute normalized rate can honestly return few hot spots. Getis-Ord Gi\* would give statistically grounded tiers and is the natural upgrade, but adds a dependency and explanatory burden disproportionate to this change.
+The earlier draft required severity tiers with published boundaries and a legend reading them, plus rates normalized per year so arbitrary date ranges stay comparable.
 
-### D4. Cluster on space only; attach a time profile per area
+A work list does not want tiers. It wants an order, and it wants stale rows gone. The fixed twelve-month window and the ranking in D8 do that directly, and `block_doorways_calling` carries more decision value than a tier would. Per-year normalization exists to compare arbitrary ranges, which this product never does — it always asks the same question about the same window.
 
-Time is a clustering dimension in intent, but keying areas by `(area, time bucket)` collapses under the measured density:
+### R7. Coordinate bounds validation — no value at this scope
 
-```
-spatial only                      8.0 requests per area (2025, 175 m)
-x weekday/weekend x 4 dayparts    1.0 per area-bucket
-x 24 hours                        0.33 per area-bucket
-```
+The earlier draft required rejecting out-of-municipality coordinates and reporting the counts, on the strength of a handful of transposed latitude/longitude rows.
 
-At one request per area-bucket, a "hot spot at 9am" is noise. Using the full 2020–2026 history multiplies counts roughly fivefold and a coarser area size adds more, but the joint key still divides the signal by the number of buckets — and every additional bucket also multiplies the areas a renderer and a report must carry.
+Re-measured against the actual scope: illegally-parked-vehicle records outside a plausible municipal bounding box number **zero**. The earlier figure came from the whole 477,343-row table across all categories. The median-coordinate rule in D5 already absorbs single mistyped points, so an explicit bounds stage would add a check that never fires.
 
-Decision: areas are spatial. Each hot spot carries a day-of-week by time-of-day profile computed over its own requests, and reports its peak period. This answers "where, and when there" with the counts concentrated in one place instead of spread across buckets. A profile computed from too few requests is flagged low-confidence rather than presented as a finding.
+### R8. Normalizing the violation by stripping the `(DISPATCH)` suffix — insufficient
 
-*Alternative considered:* joint space-and-time areas with coarse buckets over full history. Not rejected on principle — it is the more ambitious reading of the requirement and remains a viable later addition, since the per-area profile already computes the underlying cross-tabulation. It is deferred because it also requires a time-scrubbing control in the map and roughly multiplies the served payload.
-
-### D5. Batch snapshot into a local file-backed store
-
-110,579 parking requests at 1000 rows per response is ~111 paged requests; the custom fields add ~774,000 values for those requests. Both are a few minutes once, and the portal refreshes weekly, so per-view live querying buys nothing and makes the app fail whenever the portal does.
-
-A single-file embedded relational store is sufficient. There is no spatial extension requirement: binning is arithmetic on coordinates followed by a grouped count, and the whole working set is small enough to hold in memory. Ingest must be resumable, because a partial failure partway through a hundred-odd paged requests should not discard the pages already fetched.
-
-Custom fields are pivoted from key-value rows onto their request at ingest, so that every consumer reads `alleged_violation` as an attribute rather than re-implementing the one-to-many join.
-
-### D6. Correct each source's timestamp convention separately — they differ
-
-This is the subtlest trap in the data and it is load-bearing for D4.
-
-**`Cityworks_Service_Requests` publishes true UTC.** Verified empirically: staff-entered parking requests show a hard floor of essentially zero records from 00:00–10:00 UTC and a cliff-edge onset at 11:00 UTC, which is 08:00 Atlantic Daylight Time. The onset also smears between 11:00 and 12:00 UTC across the year (77 records at 11:00 against 432 at 12:00 in a 2025 sample), which is exactly the signature of a real daylight-saving boundary in correctly-stored UTC.
-
-**`311_Call_Details` does not.** HRM's own item description states: "There is currently an issue with the timestamp for this datasets where the time is offset by 3-4 hours (depending on daylight savings)." Verified: parking-enforcement calls in summer 2025 show onset at 15:00 UTC and taper ending 02:00 UTC. Subtracting the Atlantic offset places onset at 08:00 local and close at 19:00 local, matching call-centre hours. The offset was applied in the wrong direction at publication.
-
-Consequences: conversion must be daylight-saving-aware, not a fixed offset, or the 8am shift boundary smears across an hour and blurs the very signal the time profile exists to show. And the two sources must be corrected *differently* — applying one correction to both misaligns any call-versus-request comparison by 3–4 hours. Which correction was applied to which source is recorded with the output, so results can be re-derived if HRM fixes the call table.
-
-### D7. No per-record join between calls and service requests — rejected with evidence
-
-The original intent was to cross-reference the two sources to find calls that produced no enforcement action. This was investigated and is not possible.
-
-Every table HRM publishes in this family was checked for a shared identifier:
-
-```
-Cityworks Service Requests       REQUEST_ID, WORK_ORDER ('Y'/'N' flag)  -- no call reference
-Cityworks SR Custom Fields       REQUESTID + 88 distinct field names    -- no call reference
-Cityworks Work Orders            separate dataset                       -- no call reference
-311 Call Details                 CALL_ID (telephony identifier only)    -- no request reference
-```
-
-HRM's metadata describes `REQUEST_ID` as a "foreign key to the Cityworks Service Request Outcomes dataset" — **that dataset is not published**. Only Service Requests, SR Custom Fields, Work Orders, and WO Custom Fields exist under the `opendata_HRM` account.
-
-Temporal matching is also not identifiable. During business hours the sources run at roughly 15 parking calls/hour against ~7 parking requests/hour, so any candidate window holds multiple plausible partners on both sides, with no address, plate, or shared attribute to disambiguate and no ground truth to validate a pairing against. `OUTCOME` cannot substitute: it is 99.5% `Handled`, an agent disposition, not a municipal outcome.
-
-Decision: report the comparison at time-bucket granularity only — calls, requests, and conversion rate per bucket — and never assert a link between an individual call and an individual request. The finding survives the restriction and is substantial: 255,314 parking-enforcement calls against roughly 116,660 parking service requests over overlapping years, so on the order of half of parking calls never became a request.
-
-Wrap codes must be normalized first. The same activity appears under codes differing only by the responsible department's name across reorganizations (`5- PW - Parking Enforcement` 152,071; `5- TPW - Parking Enforcement` 54,526; `5- P&D - Parking Enforcement` 48,717), and a name-similar code (`P&R - Parks`, 58,954) is unrelated and must be excluded. Coverage windows also differ — calls from 2017, parking requests from 2020 — so comparisons are restricted to the overlap.
-
-### D8. `INITIATED_BY` is a channel flag, not an observer flag
-
-HRM's metadata defines it as "an indication of how the request was initiated, either by 311 Online or Internal". `INTERNAL` therefore means entered by HRM staff, which covers both enforcement officers and call-centre agents, with no field distinguishing them.
-
-An earlier reading of `INTERNAL` as officer-initiated suggested an appealing "enforcement gap" framing — areas with high citizen reporting and low officer presence. That framing is **not supported** and must not appear in any output. The attempted discriminator failed: calls and `INTERNAL` requests have near-identical weekday shapes, both about 50% weekend volume with an 08:00 local onset.
-
-The geographic contrast is nonetheless real and worth surfacing, correctly labelled as self-serve web versus staff-entered channel:
-
-```
-PLEASANT ST, DARTMOUTH      113 requests   113 staff-entered    0 311 Online
-MALIK CRT, LOWER SACKVILLE  150 requests    10 staff-entered  140 311 Online
-```
-
-The channel filter and any per-area channel breakdown must be described in those terms. This constraint is written into the specs rather than left to interface copy, because it is the kind of claim that is easy to reintroduce accidentally.
-
-### D9. Outcome classification uses `RESOLUTION` plus the tow flag, reported as a lower bound
-
-Measured `RESOLUTION` distribution for illegally-parked-vehicle requests:
-
-```
-105,152  95.1%  Requested Service Provided
-  2,466   2.2%  (null)
-  1,174   1.1%  Investigated, No Work Required
-  1,033   0.9%  Requested Service Could Not be Provided
-    536   0.5%  Alternate Service Provided
-    110   0.1%  Investigated, Work Order Opened or Linked
-     65   0.1%  SRR09                              <- raw code, undocumented
-     43         referrals to other bodies
-```
-
-No-action is therefore ~2,250 records, about 2.0%. Two dead ends were eliminated: `WORK_ORDER` is 110,508 `N` against 71 `Y`, and `DEPT_RESPONSIBILITY` is 96% the single value `PW` — neither discriminates anything for parking.
-
-`Vehicle Was Towed` (1,868 `Y`, 1.7%) is the only concrete positive action signal in the data and overrides to actioned.
-
-The 95.1% concentration on one value is consistent with a default applied at closure rather than a per-case judgement, so the no-action rate is reported as a **lower bound**, accompanied by that share and by the indeterminate share. `SRR09` and nulls are classified indeterminate rather than folded into either side.
-
-Because no-action is only ~2% — roughly 375 records per year across thousands of areas — it is exposed as a **rate attribute on spatial hot spots computed over full history**, never as its own hot spot set. Clustering 375 annual records at 300 m would produce areas resting on one or two requests.
-
-`Property Ownership` gives a testable explanation: 15,969 requests (14.5%) are on `PRIVATE` property and `Private Property` is the second most common alleged violation at 17,029. Municipal authority on private lots is limited, which would predict no-action concentrating there. Ownership distribution is reported per hot spot so the rate can be read in that light.
-
-### D10. Hot spots carry their own boundary geometry
-
-Each hot spot is served with an explicit boundary rather than an area identifier that consumers resolve against a known grid. This costs a little payload and buys the D2 upgrade path: replacing fixed-area binning with density-based clustering changes area shapes from regular to irregular, and with explicit boundaries neither renderer needs to change. It also lets the report and the map be driven from one served structure with no shared grid arithmetic.
-
-### D11. Backend computes, frontend renders
-
-Python owns ingest, normalization, clustering, scoring, profiling, labelling, and report generation, and serves the hot spot set over a JSON API. TypeScript owns the map overlay, legend, filters, and selection detail.
-
-All classification, thresholds, tier boundaries, labels, and caveat text originate in the backend and travel with the data. The frontend must not recompute or hardcode them — that is what keeps the map and report in agreement per the `hotspot-clustering` spec, and what keeps the D8 interpretation constraint from being quietly dropped in interface copy.
-
-### D12. Sequential colour scale with no baseline layer
-
-Traffic layers colour free-flowing roads green because a clear road is still a measured road. An area with no parking requests is ambiguous — nobody parks there, or it is unpatrolled, or there is no data — and colouring it green asserts "safe to park", which the data does not support and which a member of the public might act on.
-
-Only areas at or above threshold are coloured, on a single-direction low-to-high scale rather than a good-to-bad diverging one. The legend states explicitly that uncoloured means no recorded hot spot. Severity is also distinguishable by a channel other than hue.
+The earlier draft specified stripping `(DISPATCH)` and preserving a dispatch flag. That rule yields canonical `Blocking Driveway` and leaves `DRIVEWAY` as a separate type, so it would have undercounted the selection by the 62 calls filed under the bare uppercase label. Substring matching (D2) handles both, and the case-insensitive grouping trap noted there makes any exact-label rule fragile.
 
 ## Risks / Trade-offs
 
-- **Coarsening areas to hold corridors blurs adjacent distinct problems** → Area size is a parameter, tuned against the known corridor cases in D2; the report's per-area street breakdown reveals when one area is mixing unrelated streets.
-- **No-action rate rests on a field that looks defaulted** → Reported as a lower bound with the predominant-value share and indeterminate share always attached; suppressed per-area when counts are too low.
-- **Reintroducing the officer-versus-citizen framing** → The prohibition is written into the `hotspot-map` and `hotspot-report` specs as scenarios, not left to reviewer memory.
-- **Coordinates are address-derived, not captured at the scene** → Observed latitudes share a near-constant fractional tail, indicating derivation from a civic address point rather than GPS. Positions are parcel-accurate, not vehicle-accurate, which is immaterial at 300 m areas but means repeated requests at one address stack on an identical coordinate. Density-based clustering later must weight duplicate coordinates rather than treat them as independent points.
-- **Portal schema or availability changes** → Ingest is a separable stage writing a local snapshot; renderers keep working from the last good snapshot, and ingest failure names the failing source.
-- **HRM fixes the 311 timestamp offset, silently double-correcting** → The applied correction is recorded with every output, and the corrected distribution has a checkable signature: onset at 08:00 local and close near 19:00 local.
-- **Growing volume** → Parking requests more than doubled from 2020 to 2025 and 2026 is already at 16,141 by September. Rate normalization keeps areas comparable across ranges, but a fixed absolute threshold will admit more hot spots over time; the report states hot spot count against total so drift is visible.
-- **Portal paging limit is undocumented behaviour** → 1000 rows per response was observed, not promised. Ingest pages until exhaustion rather than assuming a page size.
+- **A fixed timezone offset misplaces winter records by an hour** → D15 is an open task. Impact is contained because time of day is not in the product, but the hour figures published in `docs/` are affected and the 12-month boundary can shift a date.
+- **A stale scheduled run is invisible** → D16 is an open task. Until then, the commit date in git history is the only staleness signal, and it is not in the file a person opens.
+- **String address reduction splits some doorways** → stated in every brief; R2 records coordinate keying as the fix and the scope at which it becomes necessary.
+- **The tow comparison is observational** → tows may cluster at the worst addresses, which would mask a real effect. Stated wherever the comparison is published, alongside the effect size the data can rule out.
+- **Vehicle uniqueness rests on sparse fields** → `vehicles_seen` is published beside `vehicles_distinct` so a ratio drawn from 1 of 11 calls cannot be read as covering all 11.
+- **A dissemination area is not a neighbourhood anyone names** → blocks are labelled by the streets their calls come from, stated as derived, with the census id retained for joining.
+- **The per-dwelling rate spans the block, not the street** → stated wherever published.
+- **No resumability** → a mid-run failure repeats the run. Accepted for a nightly job; would not be acceptable at all-parking scope.
+- **The census fetch has no retry** → D14a is an open task. A single transient failure on that one request currently ends the run outright, disproportionate to how small a fix it is.
+- **Shared triage state depends on the hosting environment** → the board discloses which mode is active and re-discloses if live updates drop.
+- **The pipeline has no automated tests** → every figure is currently verified by re-running against the live source, which also means source drift and a code regression look the same.
+- **The product's central claim is not independently reproducible** → D17 is an open task. The 44.7 versus 44.6 per cent recurrence comparison and the 41-minute closure figure exist only in hand-written docs; nobody can currently verify either by running the pipeline instead of trusting the prose.
 
 ## Migration Plan
 
-Greenfield; there is no existing system, data, or deployment to migrate, and no rollback target. Bootstrapping order is: project scaffolding, then ingest producing a verified snapshot, then clustering over that snapshot, then the report renderer, then the API and map.
+Nothing to migrate: the pipeline is stateless, its outputs are regenerated on every run, and the only persisted state is triage decisions living outside the repository.
 
-Snapshot refresh is a re-run of ingest against the weekly-refreshed portal. Because the snapshot is a single local artifact, reverting to a prior one is a file operation; retaining the previous snapshot until a new one is verified is sufficient.
+Rollback is `git revert` on the generated output, since `out/` is committed. The corrections in D14a and D15–D17 are independent of each other and of the rest of the pipeline, so each can land on its own.
 
 ## Open Questions
 
-- Exact default area size within the 300–400 m range, to be settled by checking the D2 corridor cases resolve into single areas without merging unrelated streets.
-- Exact severity tier boundaries, once the threshold is applied over full history rather than the single 2025 year that was prototyped.
-- Whether to include `Parking Inquiries` in any report as context. They are excluded from hot spots by the `parking-data-ingest` spec, and this does not affect clustering, the API shape, or the task breakdown.
+- Whether to state plainly that effect measurement is absent, or to show a stubbed before-and-after labelled as stubbed. Recorded as open for Chris in `docs/parking-hotspots/decisions.md`; the recommendation there is to say it plainly. Does not affect these specs.
+- Whether the named audience is Traffic Management alone or both Traffic Management and enforcement. Also open for Chris; the recommendation is both, and `enforcement-effectiveness` is written to serve both readings.
+- Whether corrected closure-time and recurrence-by-tow figures change the documentation's framing materially, which is only answerable once D17 computes them.

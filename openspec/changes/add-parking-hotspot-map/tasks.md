@@ -1,100 +1,115 @@
-## 1. Project scaffolding
+Sections 1 to 7 record behaviour already shipped in `src/hotspots.py`, `web/`, and
+`.github/workflows/nightly.yml`, and are marked done. Sections 8 to 12 are the outstanding
+corrections: places where the specs are right and the implementation is not.
 
-- [ ] 1.1 Create the Python backend project structure with a dependency manifest and verify a clean install succeeds in a fresh virtual environment
-- [ ] 1.2 Create the TypeScript frontend project structure with its dependency manifest and verify the dev server starts and serves a placeholder page
-- [ ] 1.3 Add a test runner to the backend and verify an intentionally trivial test passes via the documented test command
-- [ ] 1.4 Add linting/formatting config to both projects and verify both pass on the empty scaffold
-- [ ] 1.5 Write a top-level README documenting the ingest, build, and run commands, and verify a reader can follow it end to end once later tasks land
+## 1. Ingest and join (shipped)
 
-## 2. Snapshot store and ingest
+- [x] 1.1 Select request ids by case-insensitive substring match on `Alleged Violation` from the custom-fields layer, then fetch those requests by id in chunks — verified by the run reporting 9,791 calls for `Driveway`, matching the live total of `Blocking Driveway (DISPATCH)` (9,729) plus `DRIVEWAY` (62)
+- [x] 1.2 Report the distinct violation labels a selection resolved to — verified by the run printing `labels matched:` before results are used
+- [x] 1.3 Page the tabular layers to exhaustion at 1,000 rows and the census layer at 200 with geometry — verified by retrieved counts matching the service's own count-only queries
+- [x] 1.4 Attach tow flag, property ownership, and vehicle make, model and colour to each call, retaining calls that lack them — verified by `vehicles_seen` differing from call count on addresses with partial vehicle data
+- [x] 1.5 Reduce each address to a doorway key by taking text before the first comma and collapsing whitespace — verified by postal-code variants of one address collapsing to a single row
+- [x] 1.6 Locate each doorway at the median of its calls' coordinates — verified by an outlier coordinate on one call leaving the doorway's position unchanged
+- [x] 1.7 Assign each located doorway to its census dissemination area by local point-in-polygon with a bounding-box prefilter and even-odd ray cast across all rings — verified against the service's own spatial query on six addresses, 6 of 6 matching
+- [x] 1.8 Report how many doorways fell in no census block — verified by the run's closing `note:` line
 
-- [ ] 2.1 Define the local snapshot schema for requests, pivoted custom-field attributes, and 311 calls, and verify the store is created from scratch by a documented command
-- [ ] 2.2 Implement paged retrieval against the portal that pages until exhaustion rather than assuming a page size, and verify with a test asserting more than 1000 rows are retrieved for a known multi-page query
-- [ ] 2.3 Implement the parking-subset filter covering the enforcement types named in `parking-data-ingest` (illegally parked vehicle, vehicles obstructing snow operations, vehicle immobilization, winter parking ban) plus the administrative types, and verify counts match the portal's own count-only query for each type
-- [ ] 2.4 Tag each ingested request as location-bearing enforcement or non-enforcement, and verify a test asserts a `Parking Inquiries` record is retained but tagged non-enforcement while a `Winter Parking Ban` record is tagged enforcement despite its differing source category
-- [ ] 2.5 Implement resumable ingest so an interrupted run continues without duplicating retrieved pages, and verify by interrupting mid-run and re-running to reach the same final row count
-- [ ] 2.6 Implement ingest failure handling that names the failing source and leaves a prior snapshot intact, and verify with a test that points ingest at an unreachable endpoint and asserts the previous snapshot still loads
-- [ ] 2.7 Retrieve and pivot the custom-fields table onto requests so alleged violation, tow flag, and property ownership are direct attributes, and verify a test asserts a known request exposes all three and that a request with no custom-field rows is retained with them absent
-- [ ] 2.8 Record snapshot provenance (retrieval time, covered date range) and verify it is readable from the store by a test
+## 2. Doorway watchlist (shipped)
 
-## 3. Normalization and data quality
+- [x] 2.1 Group calls by doorway key — verified by each output row naming one address
+- [x] 2.2 Drop doorways with no call inside the recency window — verified by the listed count falling from 406 to 363 when the twelve-month filter was introduced, removing 155 dormant addresses
+- [x] 2.3 Require a configurable minimum of recent calls, defaulting to two — verified by `--min-calls` changing the listed count
+- [x] 2.4 Carry recent and all-time calls, tows, vehicles seen and distinct, repeat calls, median gap, last call, district, community, street and property ownership per doorway — verified by the columns present in `out/watchlist.csv`
+- [x] 2.5 Rank by recent calls weighted by one minus the tow rate — verified by a high-tow-rate doorway ranking below an equal-volume doorway with no tows
+- [x] 2.6 Carry the count of still-calling doorways on each doorway's block, defaulting to one where unplaced — verified by the "On this block" column in `out/watchlist.md`
+- [x] 2.7 Support restricting the list to one district, and report when nothing meets the threshold — verified by `--district 7` narrowing the list and by the `no addresses met the threshold` path
 
-- [ ] 3.1 Implement daylight-saving-aware conversion of request timestamps to Atlantic local time, and verify a test asserts two requests at the same local clock time on either side of a DST transition report the same local hour
-- [ ] 3.2 Implement the documented 3-4 hour correction for the 311 call source applied separately from the request source, and verify a test asserts corrected parking-call activity begins near 08:00 local and ends near 19:00 local
-- [ ] 3.3 Record which timestamp correction was applied to which source in the snapshot, and verify it is present in provenance output
-- [ ] 3.4 Implement canonical violation normalization stripping the `(DISPATCH)` suffix while preserving a separate dispatch indicator, and verify a test asserts the suffixed and unsuffixed hydrant variants merge to one type with the summed count and correct dispatch flags
-- [ ] 3.5 Implement coordinate bounds validation excluding out-of-municipality and missing coordinates, counting each reason separately, and verify a test asserts a transposed-coordinate record is excluded and counted as out-of-bounds
-- [ ] 3.6 Surface retrieved, missing-coordinate, and out-of-bounds counts at the end of ingest, and verify the reported total reconciles against the portal's count for the same filter
-- [ ] 3.7 Implement 311 wrap-code normalization merging the departmental-rename variants of parking enforcement and parking tickets while excluding the name-similar parks code, and verify a test asserts the merged parking-enforcement total and that the parks code is absent
+## 3. Block rollup (shipped)
 
-## 4. Clustering engine
+- [x] 3.1 Group listed doorways by census dissemination area, omitting unplaced doorways from the rollup only — verified by 71 blocks holding 283 of the 363 listed doorways
+- [x] 3.2 Require a configurable minimum of still-calling doorways per block, defaulting to two — verified by `--min-doorways` changing the block count
+- [x] 3.3 Carry doorway count, recent and all-time calls, tows, dwellings, per-dwelling rate, district, worst doorway and member addresses per block — verified by the columns in `out/blocks.csv`
+- [x] 3.4 Express block load as calls per thousand dwellings alongside the raw count, reporting it unavailable where no dwelling count exists — verified by the rate column showing `-` for blocks with no dwelling count
+- [x] 3.5 Label each block by the two streets its calls predominantly come from, retaining the census identifier — verified by `out/blocks.md` naming streets and the CSV carrying `block`
+- [x] 3.6 Rank blocks by still-calling doorway count, then by per-dwelling rate — verified by the worst block (14 doorways, 69 calls, 609 dwellings) leading the list ahead of higher-volume blocks
 
-- [ ] 4.1 Implement coordinate-keyed binning into configurable fixed geographic areas, and verify a test asserts two records with differing address spellings at one location fall in the same area
-- [ ] 4.2 Emit an explicit boundary per area rather than an identifier requiring grid arithmetic downstream, and verify a test asserts each served hot spot carries a usable boundary
-- [ ] 4.3 Implement normalized requests-per-year rate computation, and verify a test asserts the rate for one area is comparable across a one-year and a multi-year range with proportional activity
-- [ ] 4.4 Implement hot spot classification against a configurable rate threshold, and verify a test asserts raising the threshold reduces the classified set
-- [ ] 4.5 Tune the default area size against the corridor cases in `design.md` D2 (Agricola, South Park, Quinpool, Bently) and verify each resolves into a single area without merging unrelated streets; record the chosen size
-- [ ] 4.6 Calibrate default threshold and severity tier boundaries over full 2020-2026 history and verify hot spots are a bounded minority of occupied areas, recording the chosen values
-- [ ] 4.7 Publish tier boundaries alongside the hot spot set so consumers read rather than hardcode them, and verify a test asserts a consumer can derive each tier's rate range from the served payload
-- [ ] 4.8 Implement day-of-week by time-of-day profiling per hot spot using local time, including peak period identification, and verify a test asserts a synthetic area with concentrated activity reports the expected peak
-- [ ] 4.9 Implement low-confidence flagging for profiles computed from too few requests, and verify a test asserts a sparse area's profile is flagged rather than reporting a peak
-- [ ] 4.10 Implement human-readable labelling from modal street plus community, exposing council district, and verify a test asserts a known hot spot yields a street-and-community label and that an area with no usable address text falls back to community alone
-- [ ] 4.11 Implement date-range, initiating-channel, and canonical-violation filters over the clustering computation, and verify a test asserts a violation-type filter changes the resulting hot spot set
-- [ ] 4.12 Ensure a single computation per parameter set is shared by all consumers, and verify a test asserts report and API outputs for identical parameters carry identical counts, rates, and tiers
+## 4. Effectiveness evidence (shipped in part)
 
-## 5. Enforcement outcome analysis
+- [x] 4.1 Count recurrence per doorway as a further call within a configurable window, defaulting to 365 days — verified by `repeat_calls` and `median_gap_days` in `out/watchlist.csv` and by the brief stating the window used
+- [x] 4.2 Derive vehicle identity from make, model and colour, publishing distinct against seen — verified by `out/watchlist.md` rendering "distinct of seen" per row
+- [x] 4.3 State that vehicle identity is not a plate so the distinct count is a floor — verified by the closing notes in `out/watchlist.md`
+- [x] 4.4 Use the tow flag as the only outcome signal and state that a call with no tow carries no recorded outcome — verified by the closing notes in `out/watchlist.md`
 
-- [ ] 5.1 Implement actioned / closed-without-action / indeterminate classification per `enforcement-outcome-analysis`, and verify a test covers a no-work-required record, a referral, a tow overriding to actioned, and a null and `SRR09` resolution both landing as indeterminate
-- [ ] 5.2 Compute per-hot-spot no-action rate as an attribute of the hot spot, and verify a test asserts the attribute is present on each hot spot
-- [ ] 5.3 Suppress the per-hot-spot no-action rate where classified counts are too low to be meaningful, and verify a test asserts a sparse hot spot reports the rate as unavailable rather than a percentage
-- [ ] 5.4 Attach the predominant-resolution share and indeterminate share to any reported no-action figure, and verify a test asserts both accompany the rate
-- [ ] 5.5 Compute property-ownership distribution per hot spot, and verify a test asserts a predominantly private-property hot spot is distinguishable by that distribution
-- [ ] 5.6 Confirm no-action requests are never clustered as an independent hot spot set, and verify a test asserts the clustering entry points expose no such set
+## 5. Triage board (shipped in part)
 
-## 6. Call-versus-request comparison
+- [x] 5.1 Build one self-contained HTML file by substituting data and map geometry into the template — verified by `out/triage-board.html` opening in a browser with no server and no network access
+- [x] 5.2 Build the board from the same run that writes the briefs, reporting a skip that names the missing input — verified by the `skipped the board:` path when a template is absent
+- [x] 5.3 Present both the doorway and block lists with their per-row detail — verified in a browser by switching between the two lists
+- [x] 5.4 Draw a zoomable map from the embedded HRM street network and place located doorways on it — verified in a browser by zooming and by a doorway appearing at its coordinates
+- [x] 5.5 Record a triage decision and optional note per doorway and per block, showing when each was last changed — verified in a browser by recording a decision and reopening the file
+- [x] 5.6 Share decisions where the host provides shared storage, fall back to browser storage, and state which is in effect — verified in a browser by the status note differing between hosted and local copies
+- [x] 5.7 State when live shared updates stop while local saves continue — verified by the live-updates error path
+- [x] 5.8 Render legibly in light and dark and follow a change of preference while open — verified in a browser by toggling the system colour scheme
 
-- [ ] 6.1 Implement bucketed comparison of normalized parking call volume against parking request volume with a conversion rate per bucket, and verify a test asserts counts and rate for a known bucket
-- [ ] 6.2 Restrict the comparison to the overlapping coverage window of the two sources and report that window, and verify a test asserts the window excludes years present in only one source
-- [ ] 6.3 Ensure the comparison output carries no per-call outcome or per-record pairing and is not exposed as a geographic layer, and verify a test asserts the output contains no request identifier per call and no geometry
+## 6. Text briefs (shipped in part)
 
-## 7. Text report
+- [x] 6.1 Write a bounded readable brief and a complete table for each list — verified by `out/watchlist.md` showing 40 rows while `out/watchlist.csv` carries all 363
+- [x] 6.2 State the full total where the brief is bounded — verified by the brief's "Addresses below" line naming 363
+- [x] 6.3 Omit block outputs when no block qualifies, still writing doorway outputs — verified by the `if blocks:` path
+- [x] 6.4 Explain how to act on the block neighbour count before ordering a remedy — verified by the "Read the 'On this block' column" guidance in `out/watchlist.md`
+- [x] 6.5 State the recurrence window, the tow-outcome limit and the vehicle-identity limit — verified by the closing notes in `out/watchlist.md`
+- [x] 6.6 State that block labels are derived rather than official and retain the census id for joining — verified by the closing notes in `out/blocks.md`
+- [x] 6.7 Name the joined datasets and the most recent call in the data — verified by the header lines of `out/watchlist.md`
+- [x] 6.8 Document the generated files as not to be hand-edited — verified by the "Outputs, not docs" section of `docs/index.md`
 
-- [ ] 7.1 Generate the ranked hot spot report with label, district, count, rate, and tier per entry, and verify a test asserts descending rate order and presence of all five fields
-- [ ] 7.2 Bound the report's entry count while stating the total hot spots identified, and verify a test asserts the stated total exceeds the listed entries when the set is large
-- [ ] 7.3 Include each entry's peak period, with low-confidence profiles disclosed as such, and verify a test covers both a confident and a sparse entry
-- [ ] 7.4 Include each entry's no-action rate and leading violation types, and verify a test asserts both appear per entry
-- [ ] 7.5 Include summary totals (requests analysed, hot spots identified, share of requests within hot spots) and verify the share reconciles against the analysed total
-- [ ] 7.6 Include the council-district rollup and verify per-district totals sum to the hot spot total
-- [ ] 7.7 Include provenance, exclusion counts, the service-request-not-ticket caveat, and the initiating-channel caveat, and verify a test asserts all four are present in generated output
-- [ ] 7.8 Emit an equivalent structured form of the report and verify a test asserts the structured and text outputs carry matching values for every hot spot and total
+## 7. Scheduled run (shipped)
 
-## 8. API
+- [x] 7.1 Run the pipeline on a schedule against the public API with no credentials and commit the result — verified by `.github/workflows/nightly.yml` and its `workflow_dispatch` trigger
+- [x] 7.2 Run on the Python standard library with no dependency manifest or install step — verified by `python3 src/hotspots.py` succeeding on a clean Python 3.12
 
-- [ ] 8.1 Expose the hot spot set, including boundaries, tier boundaries, labels, profiles, and outcome attributes, over a JSON endpoint accepting the date-range, channel, and violation filters, and verify a test asserts a filtered request returns the expected hot spot count
-- [ ] 8.2 Expose snapshot provenance through the API and verify a test asserts retrieval time and covered range are returned
-- [ ] 8.3 Expose caveat text from the backend so the frontend renders rather than authors it, and verify a test asserts the service-request and initiating-channel caveats are present in the payload
-- [ ] 8.4 Expose the call-versus-request comparison over its own endpoint, and verify a test asserts it returns buckets with no geometry
-- [ ] 8.5 Return an explicit empty-result response distinguishable from an error when filters match no hot spots, and verify a test asserts the distinction
+## 8. Correct the timezone conversion (open)
 
-## 9. Map frontend
+Reference `design.md` D15. `src/hotspots.py:37` applies a constant `-3`, so every record outside daylight saving across the 2020-2026 range is an hour out.
 
-- [ ] 9.1 Render a base map of the municipality and verify streets and place names are legible at the default view
-- [ ] 9.2 Render hot spots as filled areas coloured by severity tier, drawn from served boundaries, and verify in a browser that areas appear as regions rather than markers or count bubbles
-- [ ] 9.3 Leave sub-threshold areas uncoloured on a single-direction scale with no good-to-bad baseline, and verify in a browser that no area is coloured to signify acceptable activity
-- [ ] 9.4 Render the legend from served tier boundaries including the statement that uncoloured means no recorded hot spot, and verify changing the backend threshold updates the legend without a frontend change
-- [ ] 9.5 Implement hot spot selection detail showing label, district, count, rate, tier, profile with peak, leading violation types, and no-action rate, and verify in a browser that selecting a known hot spot shows all fields
-- [ ] 9.6 Mark low-confidence profiles and unavailable no-action rates in selection detail, and verify in a browser that a sparse hot spot presents neither as established
-- [ ] 9.7 Implement date-range, channel, and violation filter controls that re-render overlay and legend, and verify in a browser that changing the range updates both
-- [ ] 9.8 Label the channel filter as arrival channel with no officer-versus-public framing anywhere in the interface, and verify by reviewing all rendered strings
-- [ ] 9.9 Display snapshot provenance in the interface and verify it is visible in a browser
-- [ ] 9.10 Render the empty-result state distinctly from a load failure, and verify in a browser using a filter combination yielding no hot spots
-- [ ] 9.11 Ensure severity is distinguishable without relying on hue alone, and verify by viewing the map under a colour-blindness simulation
+- [ ] 8.1 Replace the fixed `ATLANTIC` offset with daylight-saving-aware conversion for the date of each timestamp, and verify two calls at the same local clock time in July and in January report the same local time
+- [ ] 8.2 Re-derive the hour-of-day and channel figures quoted in `docs/parking-hotspots/data-sources.md` and `product.md` under the corrected conversion, and verify the published numbers match the corrected output or are updated to it
+- [ ] 8.3 Confirm the corrected conversion does not shift any doorway across the twelve-month boundary or change `last_call` dates, and verify by diffing `out/watchlist.csv` before and after
 
-## 10. Integration verification
+## 9. Stamp every output with its provenance (open)
 
-- [ ] 10.1 Run ingest end to end against the live portal and verify the snapshot's request total reconciles against the portal's count-only query for the same filter
-- [ ] 10.2 Generate a map and a report with identical parameters and verify every hot spot, count, rate, and tier matches between them
-- [ ] 10.3 Verify the top reported hot spots are recognizable Halifax parking locations and that the design D2 corridor cases each appear as one entry rather than several
-- [ ] 10.4 Verify corrected call and request time-of-day distributions both place the 08:00 local onset correctly, confirming the two corrections were applied independently
-- [ ] 10.5 Re-run ingest over an existing snapshot and verify the refresh completes and the prior snapshot remains recoverable
-- [ ] 10.6 Review all user-facing output for the interpretation constraints in design D8 and verify no text claims to distinguish enforcement officers from call-centre staff
+Reference `design.md` D16. Nothing records when a run executed, and the scheduled job commits output automatically, so a week-stale board is indistinguishable from a fresh one.
+
+- [ ] 9.1 Record the run execution time and carry it into every output, and verify each of the four briefs and tables plus the board displays it
+- [ ] 9.2 Display the run time and the most-recent-call date on the board itself, and verify in a browser that an older committed board is identifiable as old without consulting git
+- [ ] 9.3 Replace the template's undated "Regenerated from the live service" assertion with the actual run time, and verify the rendered board shows a date rather than a claim
+
+## 10. Make the recency window's anchor explicit (open)
+
+Reference `design.md` D16. `latest` is derived from the data, so a stalled source slides the twelve-month window backwards silently.
+
+- [ ] 10.1 Anchor the recency window to wall-clock time, or keep the data anchor and state the anchor date in every output, and verify the chosen anchor date appears with the results
+- [ ] 10.2 Warn when the most recent call in the data is materially older than the run time, and verify the warning fires against a deliberately stale input
+- [ ] 10.3 State in the briefs what "still calling in the last 12 months" is measured from, and verify the wording names the anchor date
+
+## 11. Make the published headline figures reproducible (open)
+
+Reference `design.md` D17. `docs/parking-hotspots/product.md:82` states every number in that folder is produced by `src/hotspots.py`. Two central figures are not: the tow-versus-recurrence comparison and the closure time. Neither appears in any generated output.
+
+- [ ] 11.1 Compute recurrence split by tow status and emit it, and verify the generated output reproduces the 44.7 per cent against 44.6 per cent comparison quoted in `README.md` and `product.md`
+- [ ] 11.2 Report the effect size the comparison can rule out, and verify the generated output states a bound rather than only an absence of difference
+- [ ] 11.3 State in the generated output that the tow comparison is observational and that tows may cluster at the worst addresses, and verify the caveat travels with the figures
+- [ ] 11.4 Compute median elapsed time from `DATE_INITIATED` to `DATE_CLOSED`, excluding and separately counting calls never closed, and verify the generated output reproduces the response-time figure opening `README.md`
+- [ ] 11.5 Reconcile the three call denominators in circulation — 9,729 for the DISPATCH label alone, 9,791 including `DRIVEWAY`, and 9,651 in the tow comparison cohort — and verify each published figure names which population it is drawn from
+
+## 12. Close the remaining spec gaps (open)
+
+- [ ] 12.1 Reference `design.md` D14a. Apply the bounded retry used by `query()` to the census fetch, which currently calls `urlopen` directly at `src/hotspots.py:109`, and verify a simulated transient failure during the census fetch recovers rather than aborting the run
+- [ ] 12.2 State the address-reduction limit in the generated briefs, not only in `docs/`, and verify `out/watchlist.md` says some doorways may still split into separate rows
+- [ ] 12.3 State in the block brief that the per-dwelling rate spans the whole block rather than the street the calls are on, and verify `out/blocks.md` carries it
+- [ ] 12.4 Add automated coverage for the pure functions — address reduction, street extraction, point-in-polygon including interior holes, vehicle identity, recurrence counting — and verify the suite passes without network access
+
+## 13. Verification after the corrections
+
+- [ ] 13.1 Run the pipeline end to end and verify every figure quoted in `README.md` and `docs/parking-hotspots/` is reproduced by generated output or removed from those documents
+- [ ] 13.2 Verify the board and the briefs from one run agree on every count, including the newly added provenance and comparison figures
+- [ ] 13.3 Verify the board opens with no network access and still shows its map, both lists, and its build time
+- [ ] 13.4 Review all published output for the interpretation limits in `design.md` D9 and R1, and verify nothing claims an enforcement outcome from `RESOLUTION` or an hour-of-day finding from pooled timestamps

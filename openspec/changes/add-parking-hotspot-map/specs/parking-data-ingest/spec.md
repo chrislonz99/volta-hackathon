@@ -1,142 +1,187 @@
 ## Purpose
 
-Retrieves Halifax Regional Municipality parking enforcement service requests from the municipal open data portal into a local, queryable snapshot, and repairs the known defects in that source data so every downstream consumer works from one clean, consistently-interpreted dataset.
+Joins the three Halifax Regional Municipality open datasets that hold a parking complaint, its outcome, and the neighbourhood it sits in, which HRM publishes apart with no join between them, and normalizes the result so every downstream consumer reads one clean set of calls.
 
 ## ADDED Requirements
 
-### Requirement: Retrieve the parking request subset
+### Requirement: Select calls by alleged violation
 
-The system SHALL retrieve parking-related service requests and their associated custom field values from the municipal open data portal into a local snapshot.
+The violation type lives in the custom-fields table, not on the call record, so selection starts there: the system SHALL find the request identifiers whose alleged violation matches a caller-supplied label, then retrieve those requests.
 
-The portal caps any single response at 1000 rows, so retrieval MUST page until exhausted and MUST NOT assume a single response contains the full result set.
+Matching SHALL be by substring, case-insensitively, because HRM records one problem under more than one label. A blocked driveway is filed as both `Blocking Driveway (DISPATCH)` and `DRIVEWAY`; a rule that only strips the `(DISPATCH)` suffix would leave the two as separate types and undercount the problem.
 
-Each retrieved request SHALL retain at minimum: its unique request identifier, initiation timestamp, closure timestamp, request type, initiating channel, priority, address text, community, district, resolution, status, and coordinates.
+The system SHALL report which labels the match resolved to, so an operator can see what was actually included.
 
-#### Scenario: Paged retrieval completes
+#### Scenario: Multiple labels for one problem
 
-- **WHEN** ingest runs against the portal
-- **THEN** the snapshot contains every parking request the portal reports for the configured date range, not only the first 1000
+- **WHEN** calls are selected for the violation substring `Driveway`
+- **THEN** both `Blocking Driveway (DISPATCH)` and `DRIVEWAY` are included, and their combined total is reported
 
-#### Scenario: Retrieval is resumable
+#### Scenario: Matched labels are disclosed
 
-- **WHEN** ingest is interrupted partway through paging
-- **THEN** re-running it completes the snapshot without duplicating already-retrieved requests
+- **WHEN** a selection runs
+- **THEN** the distinct alleged-violation labels it matched are reported before the results are used
 
-#### Scenario: Portal unavailable
+#### Scenario: Violation is caller-supplied
 
-- **WHEN** the portal cannot be reached or returns an error
-- **THEN** ingest SHALL fail with a message naming the failing source, and SHALL leave any previously completed snapshot intact and usable
+- **WHEN** a different violation substring is supplied
+- **THEN** the same pipeline runs unchanged against that violation
 
-### Requirement: Classify request types by enforcement relevance
+### Requirement: Page through every source layer to exhaustion
 
-Not every parking request describes an infraction at a location. The system SHALL tag each retrieved request as either location-bearing enforcement or non-enforcement.
+The source layers cap rows per response. The system MUST page until a response returns fewer rows than the page size, and MUST NOT assume one response holds the full result.
 
-Location-bearing enforcement types SHALL include illegally parked vehicle, vehicles obstructing snow operations, vehicle immobilization, and winter parking ban requests. Administrative types — parking inquiries, paystation faults, and non-payment ticket issues — SHALL be tagged non-enforcement.
+Page sizes differ by layer: the request and custom-field tables return up to 1,000 rows, while the census layer returns fewer when geometry is requested. The system SHALL page each layer at a size that layer accepts.
 
-Only requests tagged as location-bearing enforcement SHALL be eligible for hot spot computation.
+#### Scenario: Multi-page result retrieved whole
 
-#### Scenario: Administrative request excluded from clustering
+- **WHEN** a selection matches more rows than one response can carry
+- **THEN** every row is retrieved
 
-- **WHEN** a request of type "Parking Inquiries" is ingested
-- **THEN** it is retained in the snapshot but tagged non-enforcement, and is excluded from hot spot computation
+#### Scenario: Census geometry paged at its own limit
 
-#### Scenario: Enforcement types beyond the parking category
+- **WHEN** census polygons are retrieved with geometry
+- **THEN** paging uses a size that layer accepts rather than the size used for the tabular layers
 
-- **WHEN** a request of type "Winter Parking Ban" is ingested, which the source files under a category other than parking
-- **THEN** it is tagged as location-bearing enforcement and is eligible for hot spot computation
+### Requirement: Survive transient source failures
 
-### Requirement: Attach custom field values to each request
+The sources are public HTTP services with no availability guarantee. The system SHALL retry a failed request a bounded number of times before giving up, and SHALL fail with the source error rather than silently returning partial data.
 
-The source publishes per-request attributes in a separate key-value table related by request identifier, with a one-to-many relationship. The system SHALL attach these values to their request so each request exposes them as named attributes.
+#### Scenario: Transient failure retried
 
-For parking enforcement requests these attributes SHALL include the alleged violation, whether the vehicle was towed, and the property ownership of the location.
+- **WHEN** a request fails once and succeeds on retry
+- **THEN** retrieval continues and the result is complete
 
-#### Scenario: Custom fields attached
+#### Scenario: Persistent failure surfaces
 
-- **WHEN** a parking enforcement request with associated custom field rows is ingested
-- **THEN** the resulting request exposes its alleged violation, tow flag, and property ownership as directly readable attributes
+- **WHEN** a request fails every attempt
+- **THEN** the run stops and reports the source error, rather than producing outputs from partial data
 
-#### Scenario: Request with no custom field rows
+### Requirement: Attach outcome and vehicle fields to each call
 
-- **WHEN** a request has no associated custom field rows
-- **THEN** the request is retained with those attributes absent, and is not discarded
+The system SHALL attach to each selected call, from the custom-fields table, the alleged violation, whether the vehicle was towed, the property ownership, and the vehicle make, model and colour.
 
-### Requirement: Normalize alleged violation codes
+A call missing any of these SHALL be retained with that attribute absent rather than discarded.
 
-The source records the same violation under two spellings, one bearing a `(DISPATCH)` suffix — for example `Within 5M of Hydrant` and `Within 5M of Hydrant (DISPATCH)`. Treating these as distinct values splits counts for a single violation type.
+#### Scenario: Fields attached
 
-The system SHALL normalize each alleged violation to a canonical violation type with the suffix removed, and SHALL separately expose whether the original value carried the dispatch marker.
+- **WHEN** a selected call has custom-field rows
+- **THEN** it exposes alleged violation, tow flag, property ownership, and vehicle make, model and colour as direct attributes
 
-#### Scenario: Suffixed and unsuffixed values merge
+#### Scenario: Call with no vehicle recorded
 
-- **WHEN** requests carrying `Within 5M of Hydrant` and `Within 5M of Hydrant (DISPATCH)` are ingested
-- **THEN** both report the same canonical violation type, and their combined count is the sum of the two source spellings
+- **WHEN** a call has no vehicle fields recorded
+- **THEN** it is retained, and the absence is distinguishable from a recorded blank
 
-#### Scenario: Dispatch marker preserved
+### Requirement: Reduce each address to one doorway key
 
-- **WHEN** a request carrying a `(DISPATCH)` suffixed violation is ingested
-- **THEN** its dispatch indicator is true, and for an unsuffixed value it is false
+The address field is free text carrying the community and postal code, so one physical doorway appears under several spellings. The system SHALL reduce each address to a key by taking the text before the first separator and collapsing whitespace, so that spellings differing only by community or postal code group together.
 
-### Requirement: Interpret timestamps in Atlantic local time
+This is a string reduction, not a geocode. The system MUST state that some doorways will still split into more than one key.
 
-Source request timestamps are UTC. Halifax observes Atlantic time with daylight saving, so a fixed offset misplaces every timestamp for part of the year and smears any time-of-day analysis across an hour boundary.
+#### Scenario: Postal-code variants group together
 
-The system SHALL convert request timestamps to Atlantic local time using daylight-saving-aware conversion, and SHALL expose the local time for time-of-day and day-of-week analysis.
+- **WHEN** two calls carry the same civic address, one with a postal code and one without
+- **THEN** both reduce to the same doorway key
 
-#### Scenario: Daylight saving boundary handled
+#### Scenario: Residual splitting disclosed
 
-- **WHEN** two requests are initiated at the same local clock time, one during daylight saving and one during standard time
-- **THEN** both report the same local hour
+- **WHEN** results are published
+- **THEN** they state that address matching is a string reduction and some doorways may still appear as separate rows
 
-#### Scenario: Source timestamps with a different convention
+#### Scenario: Call with no address
 
-- **WHEN** a source is documented as publishing timestamps shifted from true UTC
-- **THEN** the system SHALL correct that shift before local conversion, and SHALL record which correction was applied to which source
+- **WHEN** a call carries no address
+- **THEN** it contributes to no doorway and is excluded from the doorway grouping
 
-### Requirement: Treat coordinates as the canonical location
+### Requirement: Locate each doorway by a representative coordinate
 
-The source address text is unreliable as a grouping key: the same physical location appears under multiple spellings depending on whether a postal code is present, and the field mixes several address grammars including civic addresses and street intersections.
+A single mistyped coordinate on one call would misplace a doorway. The system SHALL locate each doorway at the median of its calls' coordinates, so one bad point cannot move it.
 
-The system SHALL use coordinates as the canonical location of a request. Address text SHALL be used only for display and labelling, never as the key for grouping requests by location.
+A doorway whose calls carry no coordinates SHALL have no location, and MUST NOT be assigned one by guesswork.
 
-#### Scenario: Duplicate address spellings group together
+#### Scenario: Outlier coordinate does not move the doorway
 
-- **WHEN** two requests carry the same civic address, one with a postal code and one without
-- **THEN** they resolve to the same location for grouping purposes
+- **WHEN** one call at a doorway carries a coordinate far from the others
+- **THEN** the doorway's location is the median and is unaffected by that call
 
-#### Scenario: Intersection-style address retained for display
+#### Scenario: Doorway with no coordinates
 
-- **WHEN** a request's address is an intersection rather than a civic address
-- **THEN** it is located by its coordinates and its address text remains available for labelling
+- **WHEN** none of a doorway's calls carry coordinates
+- **THEN** the doorway has no location and is not placed in a neighbourhood
 
-### Requirement: Reject implausible coordinates
+### Requirement: Place each doorway in a census neighbourhood
 
-A small number of source records carry coordinates outside the municipality, including transposed latitude and longitude.
+The system SHALL assign each located doorway to the census dissemination area containing it, determined by point-in-polygon containment against the census layer's own polygons.
 
-The system SHALL exclude from hot spot computation any request whose coordinates fall outside the municipality's plausible bounds, and SHALL report how many were excluded so the exclusion is visible rather than silent.
+Containment MUST account for polygons with interior holes, so a doorway inside a hole is not counted as inside the polygon. The system SHALL carry the neighbourhood's identifier and its dwelling count forward, because the dwelling count is the denominator that keeps a dense neighbourhood from outranking a worse one.
 
-#### Scenario: Transposed coordinates excluded
+The system SHALL report how many doorways fell in no neighbourhood.
 
-- **WHEN** a request carries a latitude value that is actually a longitude, placing it outside the municipality
-- **THEN** it is excluded from hot spot computation and counted in the reported exclusions
+#### Scenario: Doorway assigned to its neighbourhood
 
-#### Scenario: Missing coordinates excluded
+- **WHEN** a located doorway falls inside a census polygon
+- **THEN** it carries that polygon's identifier and dwelling count
 
-- **WHEN** a request has no coordinates
-- **THEN** it is excluded from hot spot computation and counted separately from out-of-bounds exclusions
+#### Scenario: Interior hole excluded
 
-#### Scenario: Exclusion count surfaced
+- **WHEN** a doorway falls inside a hole within a polygon
+- **THEN** it is not assigned to that polygon
 
-- **WHEN** ingest completes
-- **THEN** it reports the total requests retrieved and the number excluded for missing and for out-of-bounds coordinates
+#### Scenario: Unplaced doorways reported
 
-### Requirement: Report snapshot provenance
+- **WHEN** a run completes
+- **THEN** the number of doorways that fell in no neighbourhood is reported
 
-Consumers need to know how current the data is, because the source refreshes on its own schedule.
+### Requirement: Convert timestamps to Atlantic local time with daylight saving
 
-The system SHALL record, and make available with any derived output, the time the snapshot was retrieved and the date range of requests it covers.
+Source timestamps are UTC. Halifax observes Atlantic time with daylight saving, so its offset is three hours in summer and four in winter.
 
-#### Scenario: Provenance available to consumers
+The system SHALL convert using daylight-saving-aware conversion for the date of each timestamp. A single fixed offset MUST NOT be used: the analysed range spans multiple years, so a fixed offset misplaces every timestamp outside the season it was chosen for by one hour.
 
-- **WHEN** a map or report is produced from a snapshot
-- **THEN** the snapshot's retrieval time and covered date range are available for display alongside it
+#### Scenario: Winter and summer timestamps both correct
+
+- **WHEN** two calls are initiated at the same local clock time, one in July and one in January
+- **THEN** both report the same local time
+
+#### Scenario: Fixed offset rejected
+
+- **WHEN** timestamps are converted
+- **THEN** the offset applied reflects whether daylight saving was in effect on that date, not one constant for the whole range
+
+### Requirement: Warn that the initiation timestamp is an intake clock
+
+The initiation timestamp records when a staff member entered the call, not when the problem occurred. On the staff-entered channel almost no calls are recorded overnight, while the citizen-entered channel spreads across all hours.
+
+The system SHALL expose the initiating channel alongside every call, and any published finding that uses time of day MUST either split by channel or state that the pooled figure reflects intake hours.
+
+#### Scenario: Channel exposed
+
+- **WHEN** a call is retrieved
+- **THEN** its initiating channel is available to consumers
+
+#### Scenario: Hour-of-day finding qualified
+
+- **WHEN** a finding derived from time of day is published
+- **THEN** it is split by initiating channel, or states that the pooled timestamp reflects staff intake hours
+
+### Requirement: Stamp every run with its provenance
+
+Outputs are regenerated on a schedule and committed automatically, so a reader cannot tell a fresh result from a stale one without a stamp. The system SHALL record, and make available to every output it writes, the time the run executed and the date of the most recent call in the data.
+
+Where a window is measured relative to the data rather than to the wall clock, the system SHALL state the date that window is anchored to, so a stalled pipeline is visible rather than silently sliding the window backwards.
+
+#### Scenario: Run timestamp available to outputs
+
+- **WHEN** a run writes its outputs
+- **THEN** each output carries the time the run executed and the date of the most recent call
+
+#### Scenario: Window anchor stated
+
+- **WHEN** a recency window is applied
+- **THEN** the date it is anchored to is stated with the results
+
+#### Scenario: Stalled pipeline is visible
+
+- **WHEN** the source stops updating and a run produces the same most-recent-call date as the previous run
+- **THEN** a reader can tell from the outputs that the data has not advanced

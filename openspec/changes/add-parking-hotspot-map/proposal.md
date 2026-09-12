@@ -1,41 +1,55 @@
 ## Why
 
-Halifax Regional Municipality publishes 110,579 illegally-parked-vehicle service requests (2020-2026) through its open data portal, 98% of them carrying latitude/longitude. Nothing in the portal shows *where* parking problems concentrate: the data is a flat table, and ranking it by address string fragments a single problem corridor into several mid-ranked rows while double-counting nothing — Quinpool Rd, Agricola St, and South Park St each appear as multiple unrelated-looking entries. There is also no view of *when* enforcement activity happens at a given place, and no visibility into which requests were closed without any enforcement action taken.
+Halifax answers a blocked driveway call quickly, closes the great majority as done, and the same doorway calls again a fortnight later. 9,791 blocked-driveway calls sit in HRM's open data from 2020 to 2026, and two figures drawn from them say enforcement is not the remedy: recurrence after a tow is 44.7 per cent against 44.6 per cent without one, and across the doorways still calling, 2,473 distinct vehicles produced 2,588 calls — 96 per cent unique. One address records 58 calls and 58 different vehicles, none appearing twice.
 
-A geographic clustering view answers all three questions from data HRM already publishes, and requires no new data collection.
+There is no repeat offender to deter. The street produces the violation, not the driver, so these calls belong to whoever installs signs, bollards and curb paint rather than to an officer's shift.
+
+HRM publishes the call in one layer and its violation, outcome and vehicle in a second key-value layer of 1.1 million rows, with no join between them. The join is what makes the finding available at all.
+
+This change records the product as built and the corrections still outstanding against it. It replaces an earlier draft of this same change that described a different product — an all-parking geographic hot spot map with a time-of-day dimension, a snapshot database, and a TypeScript frontend over a JSON API. That draft was written from a data investigation carried out in parallel with, and unaware of, the work that shipped. Four of its central premises were subsequently tested and disproven; they are recorded as rejected with their evidence in `design.md` rather than discarded, because the reasoning is worth keeping.
 
 ## What Changes
 
-- **Ingest** HRM Cityworks parking service requests and their custom fields into a local queryable snapshot, correcting known source defects (timezone handling, duplicate address spellings, out-of-bounds coordinates, unnormalized violation codes).
-- **Cluster** requests into fixed geographic cells keyed on coordinates rather than address strings, so corridor activity aggregates instead of fragmenting. Classify cells as hot spots against a calibrated threshold rather than the literal "two or more actions", which would mark 67% of occupied cells.
-- **Profile time within each cell** (day-of-week x time-of-day) rather than clustering on space x time jointly, which the data is too sparse to support at usable cell sizes.
-- **Render a map overlay** in the style of Google Maps traffic — graduated colour over areas, not pins and not individual streets — with a legend and cell drill-down.
-- **Generate a text report** over the *same* computed hot spot set as the map, ranked, with each cell labelled by human-readable place (modal street plus `COMMUNITY` and council `DISTRICT`) rather than an opaque cell id.
-- **Classify enforcement outcomes**, identifying requests closed without an action taken, and surface the no-action rate as an attribute on hot spot cells.
-- **Compare 311 parking call volume against service request volume** as a bucketed conversion rate over time. This is explicitly *not* a per-record join: no join key exists between the 311 call table and Cityworks in any of the four related datasets HRM publishes, and temporal matching is not identifiable at observed volumes. See `design.md`.
+Recorded as built:
 
-Non-goals for this change: density-based clustering (DBSCAN/HDBSCAN), statistical hot spot testing (Getis-Ord Gi*), live auto-refresh from the portal, and authentication. The clustering interface is designed so density-based binning can replace grid binning later without touching the renderers.
+- **Select and join** blocked-driveway calls by matching the alleged violation as a substring, then joining each call to its outcome and vehicle fields from the custom-fields layer.
+- **Reduce each address to a doorway** and rank the doorways still calling by recent volume discounted by the enforcement already applied there, dropping any that have gone quiet.
+- **Roll doorways up into census dissemination areas**, normalizing each block's load by its dwelling count, and carry onto every doorway the count of still-calling doorways sharing its block — the figure that decides whether the remedy is one bollard or a block-wide measure.
+- **Publish the effectiveness evidence**: recurrence with and against a tow, and how many distinct vehicles account for the calls.
+- **Ship a self-contained triage board**: one file, no server, no install, no account, carrying both lists and a zoomable map drawn from HRM's street network, recording a triage decision per doorway and per block and sharing those decisions across a team where the hosting environment allows it.
+- **Write readable briefs and complete tables** for both lists, from the same run that builds the board.
+- **Run without a person**, on a schedule, committing its output.
+
+Corrections outstanding, where the earlier draft was right and the implementation is not:
+
+- **Daylight-saving-aware time conversion.** The implementation applies a fixed three-hour offset, so every record outside daylight saving is an hour out across a six-year range.
+- **Run provenance on every output.** Nothing carries the time it was generated. Because the scheduled job commits its output automatically, a stale board is indistinguishable from a fresh one.
+- **An explicit recency anchor.** The twelve-month window is measured from the most recent call in the data rather than from the wall clock, so a stalled pipeline slides the window backwards silently.
+- **A computed closure time.** The elapsed-time figure used to open the project's own documentation is not produced by the pipeline, while that documentation states every number in it is.
+
+Non-goals: all-parking scope beyond the supplied violation substring (the same pipeline runs on any other violation by argument), effect measurement of an installed remedy, per-address remedy recommendation, and delivery of the brief into anyone's inbox.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `parking-data-ingest`: Retrieve HRM Cityworks parking service requests and custom fields into a local snapshot; normalize timestamps to Atlantic time with DST handling, merge duplicate address spellings, reject out-of-bounds coordinates, normalize violation codes, and pivot the key-value custom fields onto each request.
-- `hotspot-clustering`: Bin requests into geographic cells keyed on coordinates, score and classify cells as hot spots against a calibrated threshold, compute a per-cell time profile, and derive a human-readable label for each cell. Exposes one hot spot set consumed by all renderers.
-- `hotspot-map`: Serve and render hot spot cells as a graduated-colour area overlay on a base map, with legend, severity tiers, date-range filtering, and per-cell detail on selection.
-- `hotspot-report`: Produce a ranked text report of hot spot cells with per-cell statistics, time profile summary, and municipality-level totals, from the same hot spot set the map consumes.
-- `enforcement-outcome-analysis`: Classify each request as actioned or closed-without-action, expose the no-action rate per hot spot cell, and report 311 parking call volume against service request volume as a bucketed conversion rate.
+- `parking-data-ingest`: Select calls by alleged-violation substring, join them to their outcome and vehicle fields, reduce addresses to doorway keys, locate each doorway at a representative coordinate, place it in a census neighbourhood, convert timestamps to Atlantic local time, and stamp every run with its provenance.
+- `doorway-watchlist`: Group calls into doorways, drop those that have stopped calling, carry the evidence that enforcement has not worked there, rank by calls still arriving discounted by enforcement applied, and carry the count of still-calling neighbours on the same block.
+- `block-rollup`: Group listed doorways into census dissemination areas, normalize load by dwelling count, name each block by the streets its calls come from, and rank by spread before load.
+- `enforcement-effectiveness`: Measure recurrence at a doorway, compare it with and without a tow, measure how often the same vehicle recurs, treat the tow flag as the only published enforcement outcome, and compute the closure time the project's framing rests on.
+- `triage-board`: Ship both lists and a street-network map as one self-contained file, record a triage decision per doorway and per block, share those decisions where the environment allows and disclose when it does not, and show when the board was built.
+- `text-briefs`: Write a bounded readable brief and a complete machine-readable table for each list, carrying the same figures as the board along with the limits and provenance.
 
 ### Modified Capabilities
 
-None. This is the project's first change; `openspec list --specs` reports no existing capabilities.
+None. `openspec/specs/` holds no capabilities yet, so all six are new. The five capabilities named in the previous draft of this change — `hotspot-clustering`, `hotspot-map`, `hotspot-report`, `enforcement-outcome-analysis`, and an all-parking reading of `parking-data-ingest` — were never archived into `openspec/specs/`, so they are replaced here rather than modified.
 
 ## Impact
 
-- **New project.** The repository currently contains only OpenSpec scaffolding — no application code, no dependency manifests, no build tooling. This change establishes the initial project structure.
-- **Backend**: Python. Responsibilities are ingest, normalization, clustering/scoring, report generation, and a JSON API for the frontend.
-- **Frontend**: TypeScript, rendering the map overlay and cell detail.
-- **Local datastore**: a file-backed snapshot of the parking subset (roughly 110k request rows plus ~774k pivoted custom-field values). At this volume no spatial database or tile server is required; the working set fits in memory.
-- **External dependency**: HRM's ArcGIS FeatureServer endpoints (`services2.arcgis.com/11XBiaBYA9Ep0yNJ`) for `Cityworks_Service_Requests`, `Cityworks_Service_Requests_Custom_Fields`, and `311_Call_Details`. These are public and unauthenticated but cap responses at 1000 rows, so ingest is paged. Data is a snapshot; the portal refreshes weekly.
-- **Data quality dependencies** on documented and observed source defects, recorded in `design.md`. Two are load-bearing: the 311 call table's timestamps are shifted 3-4 hours (HRM-acknowledged), while the Cityworks timestamps are correct UTC — so any comparison across the two must correct one side.
-- **Interpretation constraint**: `INITIATED_BY` distinguishes the 311 Online self-serve channel from staff-entered records; it does *not* distinguish enforcement officers from call-centre agents. Reports must not claim otherwise.
+- **Existing code.** `src/hotspots.py` implements the pipeline end to end. `web/template.html` and `web/map-network.json` are the board's build inputs. `out/` holds generated output. `.github/workflows/nightly.yml` runs the pipeline on a schedule and commits the result.
+- **Language and runtime.** Python 3.12, standard library only — no dependency manifest, no install step, no keys. The board is plain HTML, CSS and JavaScript with no build tooling. **There is no TypeScript, no JSON API and no server**, contrary to the previous draft of this change.
+- **No datastore.** Every run queries the source layers live. There is no snapshot, no database, and no resumability beyond a bounded retry — a mid-run failure repeats the run.
+- **External dependencies.** Three HRM ArcGIS layers at `services2.arcgis.com/11XBiaBYA9Ep0yNJ`: `Cityworks_Service_Requests`, `Cityworks_Service_Requests_Custom_Fields`, and `Census_2021_Dissemination_Areas`. All public and unauthenticated. The tabular layers page at 1,000 rows; the census layer pages lower when geometry is requested.
+- **Shared triage state** depends on shared storage offered by the board's hosting environment, with the viewer's own browser as the fallback. The board must state which is in effect.
+- **Interpretation constraints** carried into the specs rather than left to prose: the initiation timestamp is a staff intake clock and not when the problem occurred; the initiating channel identifies the arrival channel and not whether an officer or a member of the public observed the infraction; the tow flag is the only published enforcement outcome and HRM publishes no ticketing field anywhere.
+- **Documentation already in the repository** under `docs/parking-hotspots/` and `docs/problem-selection/` records the same decisions in narrative form and remains the project's own account. These specs are the behaviour contract; they should not contradict it.
