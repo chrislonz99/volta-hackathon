@@ -87,12 +87,17 @@ Briefs circulate without their context, so the limits MUST travel in the file. E
 
 ### Requirement: State provenance and the source join
 
-Every brief SHALL name the datasets it joined, the time the run executed, the date of the most recent call in the data, and the date the recency window is anchored to.
+Every brief SHALL name the datasets it joined, the canonical violation type it covers, the time the run executed, the date of the most recent call in the data, and the date the recency window is anchored to.
 
 #### Scenario: Provenance present
 
 - **WHEN** a brief is written
 - **THEN** it names the joined datasets, the run time, the most-recent-call date, and the window anchor date
+
+#### Scenario: Violation type named
+
+- **WHEN** a brief is written
+- **THEN** it states which canonical violation type its figures cover
 
 #### Scenario: Counts of excluded rows reported
 

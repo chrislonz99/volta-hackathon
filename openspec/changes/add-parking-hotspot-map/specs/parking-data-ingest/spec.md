@@ -27,6 +27,22 @@ The system SHALL report which labels the match resolved to, so an operator can s
 - **WHEN** a different violation substring is supplied
 - **THEN** the same pipeline runs unchanged against that violation
 
+### Requirement: Resolve a violation label to its canonical type
+
+A canonical violation type is a group of one or more raw `Alleged Violation` labels that name the same problem under different spellings — a current mixed-case label, a legacy uppercase short code, and sometimes a `(DISPATCH)` suffix variant. The system SHALL resolve a requested canonical type to every raw label it maps to before selecting calls, rather than requiring the caller to enumerate them.
+
+The `Other` catch-all and any label that does not describe where a vehicle is stopped (such as an idling complaint) SHALL NOT be resolved into a canonical violation type.
+
+#### Scenario: Canonical type resolves to all its raw labels
+
+- **WHEN** a canonical violation type maps to more than one raw label
+- **THEN** calls filed under any of those raw labels are included in its selection
+
+#### Scenario: Ambiguous or non-parking labels excluded
+
+- **WHEN** the canonical violation type list is built
+- **THEN** the `Other` catch-all and labels that do not describe vehicle placement are not included as tracked types
+
 ### Requirement: Page through every source layer to exhaustion
 
 The source layers cap rows per response. The system MUST page until a response returns fewer rows than the page size, and MUST NOT assume one response holds the full result.

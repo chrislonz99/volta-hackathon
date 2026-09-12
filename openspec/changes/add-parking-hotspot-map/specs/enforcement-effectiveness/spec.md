@@ -102,6 +102,20 @@ The system SHALL compute the elapsed time from the initiation and closure timest
 - **WHEN** an elapsed-time figure appears in project documentation
 - **THEN** running the pipeline reproduces it
 
+### Requirement: Compute effectiveness evidence independently per violation type
+
+Recurrence, the tow comparison, and vehicle uniqueness SHALL be computed separately for each canonical violation type. A finding from one type MUST NOT be presented as evidence for another.
+
+#### Scenario: Each type measured on its own calls
+
+- **WHEN** effectiveness evidence is published for a canonical violation type
+- **THEN** every figure in it is computed from that type's own calls, not from another type's
+
+#### Scenario: A type's own numbers decide its own conclusion
+
+- **WHEN** two canonical violation types are compared
+- **THEN** neither type's published conclusion is justified by the other type's recurrence or vehicle figures
+
 ### Requirement: Point the conclusion at physical remedies
 
 Where recurrence is unchanged by a tow and the vehicles involved are overwhelmingly distinct, there is no repeat offender for enforcement to deter. The system SHALL state that conclusion and SHALL direct its output to the team responsible for signs, bollards and curb markings.
@@ -122,3 +136,8 @@ The system MUST NOT present its output as an enforcement shift plan or patrol sc
 
 - **WHEN** output is published
 - **THEN** it remains readable as evidence that these particular calls are not resolvable by enforcement
+
+#### Scenario: Conclusion withheld where evidence does not support it
+
+- **WHEN** a canonical violation type's tow comparison or vehicle uniqueness does not resemble driveway's (a large recurrence gap after a tow, or vehicles that substantially repeat)
+- **THEN** that type's output states plainly that a physical remedy is not supported by its evidence, rather than repeating driveway's conclusion

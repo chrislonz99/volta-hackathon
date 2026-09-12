@@ -198,6 +198,37 @@ If the source stalls, "still calling in the last 12 months" quietly becomes "in 
 
 This is a bigger risk than the closure-time gap. A stray number in an opening line is a citation error; an unreproducible number behind the product's one-sentence thesis is a claim nobody re-running the pipeline can check. Both are cheap to close, since every field either figure needs is already retrieved — computing them is a matter of adding the aggregation and the output line, not a new query.
 
+### D18. Track every canonical violation type, not one hardcoded label
+
+D1 through D9 were verified against a single label group (`Blocking Driveway (DISPATCH)` / `DRIVEWAY`). Re-querying the custom-fields layer live (2026-09-12) for every distinct `Alleged Violation` value found roughly sixty raw labels. The dual-labelling pattern D2 documented for driveway — a current mixed-case label plus a legacy uppercase short code — repeats across most of them:
+
+```
+No Stopping Sign          2,770  +  NOSTOPPING             30
+Within 5M of Hydrant      2,017  +  HYDRANT                31  (+ 2,383 DISPATCH variant)
+Obstructing Snow Removal  2,579  +  SNOW                    91  (+ 1,236 DISPATCH variant)
+On Sidewalk                 864  +  SIDEWALK                20  (+ 1,080 DISPATCH variant)
+Private Property         17,029  +  PRIVATE                71  +  On Private Property   62
+```
+
+A canonical violation type is therefore a group of raw labels, exactly as D2 already treats driveway, not a single string.
+
+Two labels are excluded from the tracked set rather than silently merged in:
+
+- **`Other` (7,502 calls).** An ambiguous catch-all with no defined meaning, the same caution D9 raises about trusting an unexamined default.
+- **`Left Running` / `LEFTRUNNING` (24 calls).** Filed through the same Alleged Violation field but regulates idling, not where a vehicle is stopped — a different bylaw question than every other label here.
+
+The pipeline runs once per canonical type, in the existing order (D1), producing an independent doorway list, block list, brief set and effectiveness evidence per type. Types are not pooled: the "no repeat offender" finding (D8-D9's basis) was measured on driveway calls only, and nothing in the data says it transfers to, say, `On Highway Over 24 Hours` or `Within 5M of Hydrant`. Each type's evidence is computed and read on its own; see D19.
+
+The full canonical list — around thirty types once the dual-labelling groups above are resolved — is finalized as an implementation task (`tasks.md` #14.1) rather than frozen here, because the live label set can drift between this writing and implementation.
+
+This reopens the earlier draft's premise that "all-parking scope" is out of reach — R2 was right that a wider scope changes what the primary unit should be. It does not overturn R2: coordinate binning still isn't needed for every type, only for the highest-volume ones (`No Parking Sign` at 27,302 calls is the type R2 already named as where string-reduced addressing starts to strain). That threshold should be checked per type as it is onboarded, not assumed clear for all thirty.
+
+### D19. Effectiveness evidence and its conclusion are computed per type, never assumed
+
+Because D18 batches independently rather than pooling, `enforcement-effectiveness` runs its recurrence, tow and vehicle-uniqueness comparison separately for each canonical type. A type whose tow-versus-no-tow recurrence gap is large, or whose vehicles repeat more than driveway's 96 per cent unique, does not support the same "point the conclusion at physical remedies" framing (D9) — the output must say so for that type rather than inherit driveway's language.
+
+This follows directly from D9's own reasoning: an outcome comparison is only as strong as its own recomputation, and reusing driveway's stated conclusion for a type that has not been measured would repeat exactly the mistake D9 rejected `RESOLUTION` for — asserting an outcome the data at hand does not establish.
+
 ## Rejected, with the evidence
 
 Kept rather than deleted, because each was argued at length in the earlier draft of this change and the reasoning is worth not re-deriving.
@@ -266,6 +297,8 @@ The earlier draft specified stripping `(DISPATCH)` and preserving a dispatch fla
 - **Shared triage state depends on the hosting environment** → the board discloses which mode is active and re-discloses if live updates drop.
 - **The pipeline has no automated tests** → every figure is currently verified by re-running against the live source, which also means source drift and a code regression look the same.
 - **The product's central claim is not independently reproducible** → D17 is an open task. The 44.7 versus 44.6 per cent recurrence comparison and the 41-minute closure figure exist only in hand-written docs; nobody can currently verify either by running the pipeline instead of trusting the prose.
+- **A canonical type's evidence may not support the physical-remedy conclusion** → D19 requires each type's tow and vehicle comparison to be computed and read on its own; a type is only published with driveway's framing if its own numbers support it.
+- **Batching every canonical type multiplies nightly query volume** → D18 flags this as unmeasured; runtime and ArcGIS rate limits need checking before all thirty types run on schedule (open, `tasks.md` #14.4).
 
 ## Migration Plan
 

@@ -113,3 +113,15 @@ Reference `design.md` D17. `docs/parking-hotspots/product.md:82` states every nu
 - [ ] 13.2 Verify the board and the briefs from one run agree on every count, including the newly added provenance and comparison figures
 - [ ] 13.3 Verify the board opens with no network access and still shows its map, both lists, and its build time
 - [ ] 13.4 Review all published output for the interpretation limits in `design.md` D9 and R1, and verify nothing claims an enforcement outcome from `RESOLUTION` or an hour-of-day finding from pooled timestamps
+
+## 14. Track every canonical violation type (open)
+
+Reference `design.md` D18 and D19. The original scope narrowed to blocked driveway only; this section carries the reversal into the pipeline, the board, and the nightly schedule.
+
+- [ ] 14.1 Freeze the canonical violation-type list against a fresh live query of `Alleged Violation`, grouping each current label with its legacy short code and `(DISPATCH)` variant (the pattern D2 documents for driveway), excluding `Other` and `Left Running`, and verify the frozen list's combined call count accounts for the great majority of non-excluded rows in the custom-fields layer
+- [ ] 14.2 Parameterize the pipeline runner to batch over the frozen canonical-type list, producing an independent doorway list, block list, brief set and effectiveness evidence per type, and verify no doorway or block from one type appears in another type's output
+- [ ] 14.3 Extend the board to embed every tracked type's data with a viewer-facing switcher, scoping ranking, triage state and map markers to the selected type, and verify in a browser that switching types never mixes rows across types
+- [ ] 14.4 Measure nightly runtime and request volume against the ArcGIS service across the full canonical-type batch, and verify the scheduled job completes within its window without triggering the source's rate limiting
+- [ ] 14.5 Compute recurrence, the tow comparison, and vehicle uniqueness independently for each canonical type, and verify a type whose figures do not resemble driveway's states its own conclusion rather than driveway's
+- [ ] 14.6 Check `No Parking Sign` (or any other high-volume type) against R2's string-reduction concern before it ships, and verify whether address collisions at that volume require coordinate keying ahead of the other types
+- [ ] 14.7 Update generated-output documentation (brief headers, board labels) to name which canonical type each output covers, and verify a reader can tell which type they are looking at without cross-referencing a filename

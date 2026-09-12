@@ -20,6 +20,27 @@ Everything it needs to render — the doorway and block data, and the map geomet
 - **WHEN** the board renders its map
 - **THEN** the geometry comes from data embedded in the file rather than from an external tile or map service
 
+### Requirement: Cover every tracked violation type
+
+The board SHALL present every canonical violation type tracked by a run, and SHALL let a viewer switch between them without leaving the file.
+
+Each type's doorway list, block list and map markers SHALL be scoped to that type; the board MUST NOT mix doorways or blocks from different violation types into one ranked list.
+
+#### Scenario: Viewer switches type
+
+- **WHEN** more than one canonical violation type is present in the board's data
+- **THEN** a viewer can select a type and see only that type's doorway list, block list and map markers
+
+#### Scenario: Single-type run still renders
+
+- **WHEN** a run tracks only one canonical violation type
+- **THEN** the board renders that type without requiring a switcher to be exercised
+
+#### Scenario: Lists never mix types
+
+- **WHEN** a doorway or block is ranked
+- **THEN** it is ranked only against others of the same canonical violation type
+
 ### Requirement: Build the board from the same run that writes the briefs
 
 The board and the text briefs MUST be produced by one run over one set of figures, so the page a person opens can never disagree with the files beside it.
