@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Street is the Offender</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --ground:#f3f5f3; --surface:#ffffff; --surface-2:#ecefec;
+  --ink:#16191b; --ink-2:#3d474a; --muted:#5d6a63; --line:#dde2de; --line-2:#c8d0ca;
+  --accent:#1a6b46; --accent-soft:#e4efe8;
+  --alert:#a8481a; --alert-soft:#f7e7dd;
+  --hazard:#e0ab0a;
+  --shadow:0 1px 2px rgba(16,32,24,.06),0 6px 16px -10px rgba(16,32,24,.18);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ground:#131618; --surface:#1b1f22; --surface-2:#23282c;
+  --ink:#e8ebe8; --ink-2:#b9c2bc; --muted:#8b978f; --line:#2b3135; --line-2:#3b4348;
+  --accent:#5cbe8c; --accent-soft:#1a2f24;
+  --alert:#e08a5a; --alert-soft:#33211a;
+  --hazard:#e0ab0a;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px -10px rgba(0,0,0,.6);
+}}
+:root[data-theme="dark"]{
+  --ground:#131618; --surface:#1b1f22; --surface-2:#23282c;
+  --ink:#e8ebe8; --ink-2:#b9c2bc; --muted:#8b978f; --line:#2b3135; --line-2:#3b4348;
+  --accent:#5cbe8c; --accent-soft:#1a2f24;
+  --alert:#e08a5a; --alert-soft:#33211a;
+  --hazard:#e0ab0a;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px -10px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--ground);color:var(--ink);overflow:hidden;
+  font-family:"Source Sans 3",ui-sans-serif,system-ui,sans-serif;font-size:16px;line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+.hazard{height:5px;background:repeating-linear-gradient(135deg,var(--hazard) 0 10px,#1a1a16 10px 20px);
+  position:fixed;top:0;left:0;right:0;z-index:5}
+
+.deck{height:100%;width:100%;transition:transform .5s cubic-bezier(.65,0,.35,1)}
+.slide{height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:28px 12px}
+.wrap{max-width:1450px;width:100%}
+
+.eyebrow{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 14px;display:flex;align-items:center;gap:10px}
+.eyebrow .tag{background:var(--accent-soft);color:var(--accent);padding:3px 8px;border-radius:2px;
+  font-weight:600}
+.eyebrow .tag.alert{background:var(--alert-soft);color:var(--alert)}
+
+h1{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-weight:700;
+  font-size:clamp(33px,5.06vw,57.2px);line-height:1.02;letter-spacing:-.01em;margin:0 0 18px;
+  text-wrap:balance;max-width:20ch}
+#slide-0 h1,#slide-1 h1{max-width:none}
+.thesis{max-width:66ch;font-size:18px;color:var(--ink-2);margin:0 0 26px}
+.thesis b{color:var(--ink);font-weight:600}
+
+.thesis-list{list-style:none;margin:0 0 26px;padding:0;max-width:66ch;display:flex;flex-direction:column;gap:7px}
+.thesis-list li{font-size:18px;color:var(--ink-2);padding-left:24px;position:relative}
+.thesis-list li::before{content:"\2192";position:absolute;left:0;color:var(--accent);font-weight:700}
+.thesis-list b{color:var(--ink);font-weight:600}
+
+.stats{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);border-radius:3px;
+  background:var(--surface);overflow:hidden;width:fit-content;max-width:100%;box-shadow:var(--shadow);
+  margin-bottom:28px}
+.stat{padding:13px 22px;border-right:1px solid var(--line)}
+.stat:last-child{border-right:0}
+.stat .n{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:32px;line-height:1;
+  font-variant-numeric:tabular-nums;display:block;color:var(--ink)}
+.stat .n.alert{color:var(--alert)}
+.stat .k{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);margin-top:6px;display:block;max-width:15ch}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:3px;box-shadow:var(--shadow);
+  margin-bottom:18px}
+.card>h2{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:14px;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--muted);margin:0;padding:12px 18px;border-bottom:1px solid var(--line)}
+
+table{width:100%;border-collapse:collapse;font-size:14.5px}
+th,td{padding:9px 18px;text-align:left;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--muted);background:var(--surface-2)}
+td.num,th.num{text-align:right;font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums}
+td.rank{font-family:"JetBrains Mono",monospace;color:var(--muted)}
+.bar{height:6px;background:var(--surface-2);border-radius:2px;overflow:hidden;width:100px;display:inline-block;
+  vertical-align:middle;margin-right:8px}
+.bar i{display:block;height:100%;background:var(--accent)}
+
+.note{font-size:13.5px;color:var(--muted);max-width:66ch;margin:0}
+.note code{font-family:"JetBrains Mono",monospace;font-size:12px}
+
+.evidence{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px}
+@media (max-width:760px){.evidence{grid-template-columns:1fr}}
+.ev-card{background:var(--surface);border:1px solid var(--line);border-radius:3px;box-shadow:var(--shadow);
+  padding:16px 18px}
+.ev-card h3{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:16px;margin:0 0 8px;
+  color:var(--ink)}
+.ev-card p{margin:0;font-size:14px;color:var(--ink-2)}
+.ev-card .figures{display:flex;gap:18px;margin:10px 0 4px}
+.ev-card .figures div{font-family:"JetBrains Mono",monospace}
+.ev-card .figures .v{font-size:22px;font-weight:600;display:block;color:var(--ink)}
+.ev-card .figures .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+
+.arrow{margin-top:2px}
+.arrow b{color:var(--accent)}
+
+footer.cta{display:flex;align-items:center;gap:12px;margin-top:8px}
+.pill{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding:6px 12px;border-radius:2px;border:1px solid var(--accent);color:var(--accent);background:var(--accent-soft);
+  font-weight:600}
+
+.progress{position:fixed;top:5px;left:0;right:0;height:3px;background:var(--line);z-index:6}
+.progress i{display:block;height:100%;background:var(--accent);width:50%;transition:width .5s}
+.nav{position:fixed;bottom:22px;left:0;right:0;display:flex;justify-content:center;gap:10px;z-index:6}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--line-2);border:0;cursor:pointer;padding:0}
+.dot[aria-current="true"]{background:var(--accent)}
+.navbtn{position:fixed;top:50%;transform:translateY(-50%);z-index:6;background:var(--surface);
+  border:1px solid var(--line-2);color:var(--ink-2);width:40px;height:40px;border-radius:50%;cursor:pointer;
+  font:inherit;font-size:16px;box-shadow:var(--shadow)}
+.navbtn:hover{border-color:var(--accent);color:var(--accent)}
+.navbtn.prev{left:18px}
+.navbtn.next{right:18px}
+.navbtn[disabled]{opacity:0;pointer-events:none}
+.slidenum{position:fixed;top:16px;right:20px;z-index:6;font-family:"JetBrains Mono",monospace;
+  font-size:11px;color:var(--muted);letter-spacing:.08em}
+</style>
+</head>
+<body>
+<div class="hazard"></div>
+<div class="progress"><i id="progress"></i></div>
+<div class="slidenum"><span id="slidenum">1</span> / 2</div>
+
+<div class="deck" id="deck">
+
+  <section class="slide" id="slide-0">
+    <div class="wrap">
+      <p class="eyebrow"><span class="tag alert">THE PROBLEM</span> HRM open data &middot; live query, 2026-09-12</p>
+      <h1>Halifax closes 94% of parking complaints.<br>A third call back within two weeks.</h1>
+      <p class="thesis">But <b>closed</b> is not the same as being <b>fixed</b>.</p>
+
+      <div class="stats">
+        <div class="stat"><span class="n">2,073</span><span class="k">Calls / month, HRM-wide</span></div>
+        <div class="stat"><span class="n alert">33%</span><span class="k">Recur at the same address within 14 days</span></div>
+        <div class="stat"><span class="n">0.03%</span><span class="k">Ever left formally open (39 of 121,633)</span></div>
+      </div>
+
+      <div class="card">
+        <h2>Top 5 hotspot districts &middot; trailing 12 months</h2>
+        <table>
+          <thead><tr><th>Rank</th><th>District</th><th class="num">Calls / 12mo</th><th class="num">/ week</th><th class="num">/ month</th><th class="num">Recur &lt;14d</th></tr></thead>
+          <tbody>
+            <tr><td class="rank">1</td><td>District 8</td><td class="num">3,599</td><td class="num">69.2</td><td class="num">300</td><td class="num">38.1%</td></tr>
+            <tr><td class="rank">2</td><td>District 7</td><td class="num">3,563</td><td class="num">68.5</td><td class="num">297</td><td class="num">38.3%</td></tr>
+            <tr><td class="rank">3</td><td>District 5</td><td class="num">2,450</td><td class="num">47.1</td><td class="num">204</td><td class="num">33.9%</td></tr>
+            <tr><td class="rank">4</td><td>District 9</td><td class="num">2,423</td><td class="num">46.6</td><td class="num">202</td><td class="num">32.9%</td></tr>
+            <tr><td class="rank">5</td><td>District 10</td><td class="num">2,131</td><td class="num">41.0</td><td class="num">178</td><td class="num">39.1%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      
+    </div>
+  </section>
+
+  <section class="slide" id="slide-1">
+    <div class="wrap">
+      <p class="eyebrow"><span class="tag">THE FIX</span> The street is the offender</p>
+      <h1>Stop asking &ldquo;was it closed.&rdquo;<br>Ask &ldquo;is it still calling.&rdquo;</h1>
+      <ul class="thesis-list">
+        <li><b>Today:</b> respond call by call.</li>
+        <li><b>Tomorrow:</b> see the block-level pattern.</li>
+        <li><b>Result:</b> proactive fixes &mdash; signs, curb paint, street changes &mdash; instead of reactive dispatch.</li>
+      </ul>
+
+      <div class="evidence">
+        <div class="ev-card">
+          <h3>Driveway Blocked</h3>
+          <div class="figures">
+            <div><span class="v">96%</span><span class="l">Distinct vehicles</span></div>
+          </div>
+          <p>363 recent doorway calls.</p>
+        </div>
+        <div class="ev-card">
+          <h3>No Parking Sign</h3>
+          <div class="figures">
+            <div><span class="v">90%</span><span class="l">Distinct vehicles</span></div>
+          </div>
+          <p>884 recent doorway calls.</p>
+        </div>
+        <div class="ev-card">
+          <h3>Private Property</h3>
+          <div class="figures">
+            <div><span class="v">89%</span><span class="l">Distinct vehicles</span></div>
+          </div>
+          <p>501 recent doorway calls.</p>
+        </div>
+      </div>
+
+      <footer class="cta">
+        <span class="pill">Live demo next &rarr;</span>
+      </footer>
+    </div>
+  </section>
+
+</div>
+
+<button class="navbtn prev" id="prev" aria-label="Previous slide">&larr;</button>
+<button class="navbtn next" id="next" aria-label="Next slide">&rarr;</button>
+<div class="nav" role="tablist" aria-label="Slides">
+  <button class="dot" data-i="0" aria-current="true" aria-label="Slide 1"></button>
+  <button class="dot" data-i="1" aria-label="Slide 2"></button>
+</div>
+
+<script>
+(function(){
+  var deck = document.getElementById('deck');
+  var dots = Array.prototype.slice.call(document.querySelectorAll('.dot'));
+  var prev = document.getElementById('prev');
+  var next = document.getElementById('next');
+  var progress = document.getElementById('progress');
+  var slidenum = document.getElementById('slidenum');
+  var i = 0;
+  var total = dots.length;
+
+  function render(){
+    deck.style.transform = 'translateY(-' + (i * 100) + 'vh)';
+    dots.forEach(function(d, k){ d.setAttribute('aria-current', k === i ? 'true' : 'false'); });
+    prev.disabled = i === 0;
+    next.disabled = i === total - 1;
+    progress.style.width = (100 * (i + 1) / total) + '%';
+    slidenum.textContent = i + 1;
+  }
+  function go(n){
+    i = Math.max(0, Math.min(total - 1, n));
+    render();
+  }
+
+  prev.addEventListener('click', function(){ go(i - 1); });
+  next.addEventListener('click', function(){ go(i + 1); });
+  dots.forEach(function(d){ d.addEventListener('click', function(){ go(+d.dataset.i); }); });
+
+  window.addEventListener('keydown', function(e){
+    if (['ArrowRight','ArrowDown','PageDown',' '].indexOf(e.key) > -1){ e.preventDefault(); go(i + 1); }
+    else if (['ArrowLeft','ArrowUp','PageUp'].indexOf(e.key) > -1){ e.preventDefault(); go(i - 1); }
+    else if (e.key === 'Home'){ go(0); }
+    else if (e.key === 'End'){ go(total - 1); }
+  });
+
+  var touchStartY = null;
+  window.addEventListener('touchstart', function(e){ touchStartY = e.touches[0].clientY; }, {passive:true});
+  window.addEventListener('touchend', function(e){
+    if (touchStartY === null) return;
+    var dy = touchStartY - e.changedTouches[0].clientY;
+    if (Math.abs(dy) > 60){ go(dy > 0 ? i + 1 : i - 1); }
+    touchStartY = null;
+  }, {passive:true});
+
+  render();
+})();
+</script>
+</body>
+</html>
