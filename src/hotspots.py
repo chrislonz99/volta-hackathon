@@ -1,0 +1,275 @@
+"""Find the Halifax doorways where parking enforcement cannot win.
+
+The script joins three HRM open datasets that are published apart:
+  1. Cityworks Service Requests (the call).
+  2. Cityworks Service Requests Custom Fields (the violation, the tow, the vehicle).
+  3. The same custom fields table again, for the vehicle make, model and colour.
+
+For each address it counts the calls, counts the tows, and counts how many
+distinct vehicles were involved. An address with many calls, almost no tows,
+and a different vehicle nearly every time is an address where enforcement has
+already been tried and has not worked.
+
+Run:  python3 src/hotspots.py --violation Driveway
+
+The violation is matched as a substring, because HRM records the same problem
+under more than one label. A blocked driveway is filed as both
+"Blocking Driveway (DISPATCH)" and "DRIVEWAY".
+"""
+
+import argparse
+import collections
+import csv
+import datetime
+import json
+import re
+import statistics
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+BASE = "https://services2.arcgis.com/11XBiaBYA9Ep0yNJ/arcgis/rest/services"
+SR = BASE + "/Cityworks_Service_Requests/FeatureServer/0/query"
+CF = BASE + "/Cityworks_Service_Requests_Custom_Fields/FeatureServer/0/query"
+PAGE = 1000
+ATLANTIC = datetime.timedelta(hours=-3)  # ADT. Timestamps arrive in UTC.
+VEHICLE_FIELDS = ("Vehicle Make", "Vehicle Model", "Vehicle Colour")
+
+
+def query(url, where, out_fields, order_by):
+    """Page through an ArcGIS feature service and return all attribute rows."""
+    offset, rows = 0, []
+    while True:
+        body = {
+            "where": where,
+            "outFields": out_fields,
+            "returnGeometry": "false",
+            "f": "json",
+            "resultOffset": str(offset),
+            "resultRecordCount": str(PAGE),
+            "orderByFields": order_by,
+        }
+        req = urllib.request.Request(url, data=urllib.parse.urlencode(body).encode())
+        for attempt in range(4):
+            try:
+                payload = json.load(urllib.request.urlopen(req, timeout=120))
+                break
+            except Exception:
+                if attempt == 3:
+                    raise
+                time.sleep(3)
+        if "error" in payload:
+            raise RuntimeError(payload["error"])
+        features = payload.get("features", [])
+        rows += [f["attributes"] for f in features]
+        if len(features) < PAGE:
+            return rows
+        offset += PAGE
+
+
+def chunked(items, size):
+    for i in range(0, len(items), size):
+        yield items[i : i + size]
+
+
+def to_local(epoch_ms):
+    if epoch_ms in (None, ""):
+        return None
+    utc = datetime.datetime.fromtimestamp(epoch_ms / 1000, datetime.UTC)
+    return utc + ATLANTIC
+
+
+def clean_address(raw):
+    """Strip the city and postal code so one doorway is one key."""
+    if not raw:
+        return None
+    head = raw.upper().split(",")[0].strip()
+    return re.sub(r"\s+", " ", head) or None
+
+
+def load(violation):
+    """Fetch every call matching a violation label, with its outcome fields."""
+    print(f"fetching request ids matching {violation!r} ...", file=sys.stderr)
+    tagged = query(
+        CF,
+        "CUSTOM_FIELD_NAME='Alleged Violation' "
+        f"AND UPPER(CUSTOM_FIELD_VALUE) LIKE '%{violation.upper()}%'",
+        "REQUESTID,CUSTOM_FIELD_VALUE",
+        "ObjectId",
+    )
+    labels = sorted({r["CUSTOM_FIELD_VALUE"] for r in tagged})
+    print(f"  labels matched: {labels}", file=sys.stderr)
+    ids = sorted({str(r["REQUESTID"]) for r in tagged})
+    print(f"  {len(ids)} calls", file=sys.stderr)
+
+    wanted = "','".join(("Vehicle Was Towed", "Property Ownership") + VEHICLE_FIELDS)
+    calls, extras = [], []
+    for i, chunk in enumerate(chunked(ids, 300)):
+        joined = ",".join(chunk)
+        calls += query(
+            SR,
+            f"REQUEST_ID IN ({joined})",
+            "REQUEST_ID,DATE_INITIATED,DATE_CLOSED,ADDRESS,COMMUNITY,DISTRICT,"
+            "RESOLUTION,LATITUDE,LONGITUDE,INITIATED_BY",
+            "REQUEST_ID",
+        )
+        extras += query(
+            CF,
+            f"REQUESTID IN ({joined}) AND CUSTOM_FIELD_NAME IN ('{wanted}')",
+            "REQUESTID,CUSTOM_FIELD_NAME,CUSTOM_FIELD_VALUE",
+            "ObjectId",
+        )
+        print(f"  batch {i + 1} done", file=sys.stderr)
+
+    fields = collections.defaultdict(dict)
+    for row in extras:
+        fields[row["REQUESTID"]][row["CUSTOM_FIELD_NAME"]] = row["CUSTOM_FIELD_VALUE"]
+    return calls, fields
+
+
+def vehicle_key(field_map):
+    """A rough identity for one vehicle. Returns None when nothing was recorded."""
+    parts = tuple((field_map.get(f) or "").strip().upper() for f in VEHICLE_FIELDS)
+    return parts if any(parts) else None
+
+
+def build(calls, fields, min_calls, recur_days, latest):
+    """Group calls by address and score each address."""
+    recent_from = latest - datetime.timedelta(days=365)
+    by_address = collections.defaultdict(list)
+    for call in calls:
+        started = to_local(call["DATE_INITIATED"])
+        address = clean_address(call["ADDRESS"])
+        if started and address:
+            by_address[address].append((started, call))
+
+    rows = []
+    for address, entries in by_address.items():
+        entries.sort(key=lambda e: e[0])
+        times = [e[0] for e in entries]
+        ids = [e[1]["REQUEST_ID"] for e in entries]
+
+        recent = sum(1 for t in times if t >= recent_from)
+        if recent == 0:
+            continue  # A doorway that stopped calling is not Monday's problem.
+
+        tows = sum(1 for i in ids if fields[i].get("Vehicle Was Towed") == "Y")
+        seen = [vehicle_key(fields[i]) for i in ids]
+        seen = [s for s in seen if s]
+        repeats = sum(
+            1
+            for k, t in enumerate(times)
+            if any((times[j] - t).days <= recur_days for j in range(k + 1, len(times)))
+        )
+        gaps = [(times[i + 1] - times[i]).days for i in range(len(times) - 1)]
+
+        rows.append(
+            {
+                "address": address,
+                "calls_12mo": recent,
+                "calls_total": len(times),
+                "district": entries[-1][1]["DISTRICT"],
+                "community": entries[-1][1]["COMMUNITY"],
+                "owner": collections.Counter(
+                    fields[i].get("Property Ownership") for i in ids
+                ).most_common(1)[0][0],
+                "tows": tows,
+                "tow_rate": tows / len(times),
+                "vehicles_seen": len(seen),
+                "vehicles_distinct": len(set(seen)),
+                "repeat_calls": repeats,
+                "median_gap_days": statistics.median(gaps) if gaps else None,
+                "last_call": max(times).strftime("%Y-%m-%d"),
+                "lat": entries[-1][1]["LATITUDE"],
+                "lon": entries[-1][1]["LONGITUDE"],
+            }
+        )
+
+    rows = [r for r in rows if r["calls_12mo"] >= min_calls]
+    # Rank by calls still arriving, weighted by how little enforcement achieved
+    # there. An address that already gets towed is already being handled.
+    rows.sort(key=lambda r: -(r["calls_12mo"] * (1 - r["tow_rate"])))
+    return rows
+
+
+def write_csv(rows, path):
+    with open(path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_brief(rows, calls, fields, violation, path, recur_days, latest):
+    total = len(calls)
+    tows = sum(1 for c in calls if fields[c["REQUEST_ID"]].get("Vehicle Was Towed") == "Y")
+    seen = sum(r["vehicles_seen"] for r in rows)
+    distinct = sum(r["vehicles_distinct"] for r in rows)
+
+    lines = [
+        f"# Doorways enforcement cannot fix: alleged violation matching {violation!r}",
+        "",
+        "Source: HRM open data. Cityworks Service Requests joined to Cityworks Service "
+        "Requests Custom Fields.",
+        f"Most recent call in the data: {latest.strftime('%Y-%m-%d')}.",
+        "",
+        f"- Calls in scope: {total:,}.",
+        f"- Calls that ended in a tow: {tows:,} ({100 * tows / total:.1f} per cent).",
+        f"- Addresses below, each still calling in the last 12 months: {len(rows):,}.",
+        f"- Distinct vehicles at those addresses: {distinct:,} across {seen:,} calls "
+        f"({100 * distinct / seen:.0f} per cent unique).",
+        "",
+        "Each row is a doorway that keeps generating calls.",
+        "Nearly every call is a different vehicle, so there is no repeat offender to deter.",
+        "Send these to whoever owns signs, bollards and curb paint, not to an officer.",
+        "",
+        "| # | Address | Calls 12mo | Calls all time | Tows | Distinct vehicles | Median gap | Last call | District |",
+        "|---|---------|-----------:|---------------:|-----:|------------------:|-----------:|-----------|----------|",
+    ]
+    for i, r in enumerate(rows[:40], 1):
+        gap = f"{r['median_gap_days']:.0f} d" if r["median_gap_days"] is not None else "-"
+        veh = f"{r['vehicles_distinct']} of {r['vehicles_seen']}"
+        lines.append(
+            f"| {i} | {r['address']} | {r['calls_12mo']} | {r['calls_total']} | {r['tows']} "
+            f"| {veh} | {gap} | {r['last_call']} | {r['district']} |"
+        )
+    lines += [
+        "",
+        f"Repeat means another call at the same address within {recur_days} days.",
+        "A tow is the outcome the city recorded. HRM publishes no ticketing field, so a",
+        "call with no tow is a call with no recorded outcome, not proof that nothing was done.",
+        "Vehicle identity is make, model and colour. It is not a plate, so two identical cars",
+        "count as one. That makes the distinct count a floor, not a ceiling.",
+        "",
+    ]
+    with open(path, "w") as fh:
+        fh.write("\n".join(lines))
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--violation", default="Driveway")
+    ap.add_argument("--min-calls", type=int, default=2,
+                    help="minimum calls in the last 12 months")
+    ap.add_argument("--recur-days", type=int, default=365)
+    ap.add_argument("--district", help="limit the brief to one district")
+    ap.add_argument("--csv", default="out/watchlist.csv")
+    ap.add_argument("--brief", default="out/watchlist.md")
+    args = ap.parse_args()
+
+    calls, fields = load(args.violation)
+    latest = max(to_local(c["DATE_INITIATED"]) for c in calls if c["DATE_INITIATED"])
+    rows = build(calls, fields, args.min_calls, args.recur_days, latest)
+    if args.district:
+        rows = [r for r in rows if str(r["district"]) == args.district]
+    if not rows:
+        print("no addresses met the threshold", file=sys.stderr)
+        return 1
+    write_csv(rows, args.csv)
+    write_brief(rows, calls, fields, args.violation, args.brief, args.recur_days, latest)
+    print(f"wrote {args.csv} and {args.brief} ({len(rows)} addresses)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
