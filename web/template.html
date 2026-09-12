@@ -238,6 +238,33 @@ canvas#cv{display:block;width:100%;height:100%}
     .seg button{flex:1 1 auto}
     .mapwrap{height:260px}
   }
+  .toolbar-top{gap:16px}
+  .toolbar-top input[type=search]{max-width:none;height:38px}
+  .toolbar-top .district-filter{align-items:center;gap:8px;margin-left:auto}
+  #district{height:38px;min-width:205px}
+  .controls{border-bottom:1px solid var(--line);justify-content:space-between;gap:8px}
+  .status-tabs{display:flex;gap:20px;flex-wrap:wrap}
+  .status-tabs button{font:inherit;font-size:14px;cursor:pointer;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;padding:10px 0}
+  .status-tabs button[aria-pressed="true"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+  .status-tabs button:hover{color:var(--ink)}
+  .clear-filters{font:inherit;font-size:13px;background:none;border:0;color:var(--muted);cursor:pointer;padding:8px 0;text-decoration:underline}
+  .table-panel{min-width:0}
+  .table-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px;min-height:38px}
+  .table-tools .count{margin-left:0}
+  .table-tools label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);min-width:0;max-width:100%;white-space:nowrap}
+  .table-tools select{min-width:0;max-width:230px;flex:1;width:auto}
+  select{appearance:none;padding-right:36px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%238b978f' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+  @media(forced-colors:active){select{appearance:auto;background-image:none}}
+  .mobile-status{display:none}
+  @media(max-width:768px){
+    .toolbar-top .district-filter{width:100%;margin:0;flex-wrap:nowrap}
+    .toolbar-top #district{width:auto;flex:1;min-width:0}
+    .status-tabs{display:none}
+    .mobile-status{display:flex;align-items:center;gap:12px;font-size:14px;flex:1}
+    .mobile-status select{min-width:0;flex:1}
+    .controls{padding-bottom:12px}
+    .table-panel{margin-top:16px}
+  }
 </style>
 </head>
 <body>
@@ -274,14 +301,15 @@ canvas#cv{display:block;width:100%;height:100%}
       <button type="button" data-mode="door">By doorway</button>
     </div>
     <input type="search" id="q" placeholder="Find a street" aria-label="Find a street">
-    <select id="sort" aria-label="Sort the list"></select>
-    <span class="count" id="showing" aria-live="polite"></span>
+    <label class="district-filter" for="district"><span class="filter-label">District</span>
+      <select id="district"></select>
+    </label>
   </div>
-  <div class="district-filter">
-    <span class="filter-label">District</span>
-    <div class="dcols" id="dchips"></div>
+  <div class="controls">
+    <div class="status-tabs" id="statusfilter" aria-label="Filter by status"></div>
+    <label class="mobile-status" for="status-select">Status <select id="status-select"></select></label>
+    <button type="button" class="clear-filters" id="clear-filters" hidden>Clear filters</button>
   </div>
-  <div class="controls"><div class="seg" id="statusfilter"></div></div>
 </section>
 
 <div class="workspace">
@@ -313,10 +341,16 @@ canvas#cv{display:block;width:100%;height:100%}
   </section>
   <button type="button" class="splitter" id="panel-resize" role="separator" aria-label="Resize map and table panels" aria-orientation="vertical" aria-valuemin="20" aria-valuemax="80" aria-valuenow="55" title="Drag to resize · Arrow keys to adjust · Double-click to reset"></button>
 
+<section class="table-panel" aria-label="Triage results">
+  <div class="table-tools">
+    <span class="count" id="showing" aria-live="polite"></span>
+    <label for="sort">Sort by <select id="sort" aria-label="Sort the list"></select></label>
+  </div>
 <div class="rows">
   <div class="rhead" id="rhead"></div>
   <div id="list"></div>
 </div>
+</section>
 </div>
 
 <footer>
@@ -729,6 +763,7 @@ function heads(){
 }
 
 function render(){
+  el("clear-filters").hidden = !(f.district || f.status !== "all" || f.q);
   const v = items(), V = VOCAB();
   el("showing").textContent = mode === "block"
     ? `${v.length} of ${BLOCKS.length} blocks`
@@ -877,20 +912,14 @@ function chips(){
   const base = mode === "block" ? BLOCKS : ROWS;
   const counts = {};
   base.forEach(it => counts[it.d] = (counts[it.d]||0) + 1);
-  const order = Object.keys(counts).sort((a,b)=>counts[b]-counts[a]);
-  const box = el("dchips"); box.textContent = "";
+  const order = Object.keys(counts).sort((a,b)=>a==="?"?1:b==="?"?-1:Number(a)-Number(b));
+  const box = el("district"); box.textContent = "";
+  box.add(new Option("All districts", ""));
   order.forEach(dd => {
-    const b = document.createElement("button");
-    b.className = "dchip"; b.type = "button";
-    b.setAttribute("aria-pressed", f.district === dd ? "true" : "false");
-    b.innerHTML = (dd === "?" ? "none" : "D" + dd) + `<span class="count">${counts[dd]}</span>`;
-    b.onclick = () => {
-      f.district = f.district === dd ? null : dd;
-      render();
-      fitTo(f.district ? base.filter(x=>x.d===f.district) : base, 40);
-    };
-    box.appendChild(b);
+    const word = mode === "block" ? (counts[dd]===1?"block":"blocks") : (counts[dd]===1?"doorway":"doorways");
+    box.add(new Option(`${dd==="?"?"District unknown":"District "+dd} (${counts[dd]} ${word})`,dd));
   });
+  box.value = f.district || "";
   const n = f.district ? counts[f.district] : base.length;
   const untri = base.filter(it => (!f.district || it.d===f.district) && st(it.key)==="none_").length;
   const word = mode === "block" ? "blocks" : "doorways";
@@ -899,14 +928,29 @@ function chips(){
 }
 function statusSeg(){
   const V = VOCAB(), box = el("statusfilter"); box.textContent = "";
+  const select = el("status-select"); select.textContent = "";
+  const short = {all:"All",none_:"Not triaged",study:"Study needed",visit:"Visit needed",sched:"Scheduled",noact:"No action"};
   [["all","All"], ...Object.keys(V).map(k => [k, V[k].label])].forEach(([k,label]) => {
     const b = document.createElement("button");
-    b.type = "button"; b.textContent = label;
+    b.type = "button"; b.textContent = short[k]; b.title = label;
+    select.add(new Option(label,k));
     b.setAttribute("aria-pressed", f.status === k ? "true" : "false");
     b.onclick = () => { f.status = k; statusSeg(); render(); };
     box.appendChild(b);
   });
+  select.value = f.status;
 }
+el("district").onchange = e => {
+  f.district = e.target.value || null;
+  render();
+  const base = mode === "block" ? BLOCKS : ROWS;
+  fitTo(f.district ? base.filter(x=>x.d===f.district) : base,40);
+};
+el("status-select").onchange = e => {f.status=e.target.value;statusSeg();render();};
+el("clear-filters").onclick = () => {
+  f.district=null;f.status="all";f.q="";el("q").value="";
+  statusSeg();render();fitTo(mode==="block"?BLOCKS:ROWS,40);
+};
 function modebar(){
   el("modebar").querySelectorAll("[data-mode]").forEach(b =>
     b.setAttribute("aria-pressed", b.dataset.mode === mode ? "true" : "false"));
@@ -971,10 +1015,7 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
   db = await useCap("db");
   if (!db){
     DEC = loadLocal();
-    const n = Object.keys(DEC).length;
-    note2(n
-      ? `${n} decision${n===1?"":"s"} restored from this browser. This copy saves locally only, so nobody else sees them.`
-      : "");
+    note2("");
     render();
     return;
   }
