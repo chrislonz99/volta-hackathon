@@ -264,7 +264,7 @@ canvas#cv{display:block;width:100%;height:100%}
     <div class="stat"><span class="n">96%</span><span class="k">of vehicles unique</span></div>
   </div>
   </div>
-  <div class="banner" id="dbstate">Decisions are saved for everyone who opens this page. Connecting&hellip;</div>
+  <div class="banner" id="dbstate" role="status" hidden></div>
 </header>
 
 <section class="toolbar" aria-label="Filter map and list">
@@ -870,7 +870,7 @@ async function save(it, status, note, quiet){
   try { await db.doc("decisions/" + it.key.replace(":", "-")).set(rec); }
   catch(e){ note2("Could not save that decision: " + (e && e.code ? e.code : "unknown error") + "."); }
 }
-const note2 = msg => { el("dbstate").textContent = msg; };
+const note2 = msg => { el("dbstate").textContent = msg; el("dbstate").hidden = !msg; };
 
 /* ---------- chrome ---------- */
 function chips(){
@@ -974,7 +974,7 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
     const n = Object.keys(DEC).length;
     note2(n
       ? `${n} decision${n===1?"":"s"} restored from this browser. This copy saves locally only, so nobody else sees them.`
-      : "This copy saves decisions in your browser only. The published page shares them with your whole team.");
+      : "");
     render();
     return;
   }
