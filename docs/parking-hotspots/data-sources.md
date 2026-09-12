@@ -71,6 +71,32 @@ Alleged Violation values, top five:
 | Blocking Driveway (DISPATCH) | 9,729 |
 | Over Time Specified | 4,892 |
 
+### 3. Census 2021 Dissemination Areas
+
+`https://services2.arcgis.com/11XBiaBYA9Ep0yNJ/arcgis/rest/services/Census_2021_Dissemination_Areas/FeatureServer/0`
+
+610 polygons covering HRM.
+This is the neighbourhood grain, and it is the only one of four candidates that works.
+
+| Field | What it gives you |
+|-------|-------------------|
+| DAUID | The block id. Joins back to any census table. |
+| DATDWELL20 | Total dwellings. The denominator that stops a dense block outranking a worse one. |
+| DAPOP2021 | Population. |
+
+The join is a point-in-polygon of each address's median coordinate.
+The script does it locally with an even-odd ray cast, because the alternative is one server request per address.
+Verified against the service's own `esriSpatialRelIntersects` query on six addresses: 6 of 6 matched.
+
+**Three coarser grains were tested and rejected.**
+
+| Candidate | Why not |
+|-----------|---------|
+| `COMMUNITY` on the call record | 7,651 of 9,791 driveway calls just say HALIFAX. |
+| Community Boundaries (`GSA`), 200 polygons | Same failure. "HALIFAX" holds 3,121 of the 4,255 addresses. |
+| Community Plan Areas, 22 polygons | Far too coarse. |
+| Street name from the address, 1,039 groups | Works, and readable, but a weaker cut: the top 20 streets hold 25 per cent of recent calls against 35 per cent for the top 20 blocks. Kept as the `street` column and used to name each block. |
+
 ## Limits to state on stage
 
 - `ADDRESS` is free text. The same doorway appears with and without a postal code. The product strips everything after the first comma. Some doorways will still split.
@@ -78,7 +104,9 @@ Alleged Violation values, top five:
 - `Vehicle Was Towed` is the only enforcement outcome published. There is no ticketing field anywhere in the 87 distinct custom field names, and `RESOLUTION` has no "ticket issued" value. A call with no tow is a call with no recorded outcome, not proof that nothing was done.
 - `DATE_CLOSED` is when the service request closed. For parking that is close to the real end of the job. For trees it is not, because the call closes when a work order opens.
 - Timestamps are UTC. Convert to UTC-3 before you talk about hour of day.
-- The ArcGIS layers page at 1,000 rows per request. Use `resultOffset`.
+- The ArcGIS layers page at 1,000 rows per request. Use `resultOffset`. The census layer pages at 200 when geometry is returned.
+- A dissemination area is a census unit, not a neighbourhood anyone in Halifax names. The script labels each block by the two streets its calls come from, which is readable, but the label is derived and not official.
+- `DATDWELL20` is total dwellings in the whole block, so calls per 1,000 dwellings is a rate across the block, not along the street the calls are on.
 
 ## The date range
 

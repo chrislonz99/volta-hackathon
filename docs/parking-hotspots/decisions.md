@@ -43,6 +43,40 @@ Reason.
 The service returns UTC.
 Halifax is UTC-3 in summer, so the offset moves every hour-of-day figure by three hours.
 
+**2026-09-12, Chris.**
+Group by neighbourhood as well as by address.
+
+Chris: "make sure to not just group by addresses group by neighborhood because if some addresses are in the same neighborhood".
+
+Reason, and what the test found.
+He was right, and the address view was hiding the bigger problem.
+28 Queen St and 70 Ochterloney St were rows 1 and 3 of the address list.
+They are the same census block.
+The address view counted them as two separate problems.
+
+Two grains were rejected before the right one was found.
+`COMMUNITY` on the call record is useless: 7,651 of 9,791 driveway calls just say HALIFAX.
+HRM's Community Boundaries layer fails the same way: "HALIFAX" swallows 3,121 of the 4,255 addresses.
+
+Census 2021 Dissemination Areas is the grain that works.
+610 polygons across HRM, and each carries a dwelling count, so a block's load can be a rate and not a raw total.
+The top 20 blocks hold 35 per cent of recent calls against 25 per cent for the top 20 streets, so the block is also the sharper cut.
+
+**2026-09-12, Claude's proposal.**
+Rank blocks by how many separate doorways are still calling, then by calls per 1,000 dwellings.
+
+Reason.
+Raw call volume rewards a block for having more front doors.
+The dwelling count is the denominator that removes that, and it comes with the census layer at no extra join.
+
+**2026-09-12, Claude's proposal.**
+Put a "doorways calling on this block" count on every doorway row.
+
+Reason.
+It is the one number that decides the fix.
+Where it reads 1, a bollard or a driveway marking settles it.
+Where it reads 10, ten signs is the wrong answer and the block needs a permit zone, curb management or a parking study.
+
 ## Open for Chris
 
 **Does the demo show the effect test?**
