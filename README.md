@@ -7,6 +7,15 @@ Halifax answers a blocked driveway call in 41 minutes, closes 94 per cent of the
 
 This finds the doorways where enforcement has already been tried and has not worked, and sends them to whoever owns signs, bollards and curb paint.
 
+## Open the board
+
+`out/triage-board.html` is the whole thing as one file. Double-click it. No server, no install,
+no account. It carries the 71 blocks, the 363 doorways, and a zoomable map of Halifax drawn from
+HRM's own street network, and it remembers your triage decisions in your browser.
+
+The hosted copy shares those decisions with everyone who opens it, so a team triages one list
+instead of three.
+
 ## Run it
 
 ```bash
@@ -14,7 +23,14 @@ python3 src/hotspots.py
 ```
 
 No keys and no install.
-It reads HRM open data over HTTPS and writes `out/watchlist.csv` and `out/watchlist.md`.
+It reads HRM open data over HTTPS and writes every output: the doorway list, the block list, and
+the standalone board.
+
+| Output | What it is |
+|--------|------------|
+| `out/triage-board.html` | The board. One file, opens in any browser. |
+| `out/watchlist.csv` / `.md` | The 363 doorways still calling. |
+| `out/blocks.csv` / `.md` | The 71 blocks where two or more doorways are still calling. |
 
 ```bash
 python3 src/hotspots.py --violation "No Parking Sign" --district 7
@@ -29,12 +45,27 @@ python3 src/hotspots.py --violation "No Parking Sign" --district 7
 - 94.1 per cent were closed as "Requested Service Provided".
 - 44.6 per cent were followed by another call at the same doorway within a year.
 - 363 doorways are still calling right now.
+- 71 blocks hold 283 of them, so 78 per cent are not an isolated doorway.
 
 **A tow does not change anything.** Towed calls recur at 44.7 per cent. Not-towed calls recur at 44.6 per cent. The difference is 0.1 points.
 
 **It is a different car every time.** Across the 363 doorways, 2,473 distinct vehicles produced 2,588 calls. That is 96 per cent unique. 28 Queen St has 58 calls and 58 different vehicles, with no vehicle appearing twice.
 
 There is no repeat offender to deter. The street produces the violation, not the driver.
+
+## Blocks, not doorways
+
+Grouping by address alone hid the bigger problem. 28 Queen St and 70 Ochterloney St were rows 1
+and 3 of the doorway list. They are the same census block.
+
+The worst block has **14 doorways still calling and 69 calls in 12 months across 609 dwellings**.
+The worst single doorway had 26. Fourteen signs is the wrong answer to one block.
+
+Three coarser groupings were tried and thrown out. The `COMMUNITY` field on the call record is
+useless: 7,651 of 9,791 driveway calls just say HALIFAX. HRM's Community Boundaries layer fails the
+same way. Community Plan Areas has 22 polygons for the whole municipality. Census 2021
+Dissemination Areas is the grain that works, and it carries a dwelling count, so a block's load can
+be a rate instead of a raw total.
 
 ## What we tested and threw away
 

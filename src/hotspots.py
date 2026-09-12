@@ -384,6 +384,50 @@ def write_brief(rows, calls, fields, violation, path, recur_days, latest):
         fh.write("\n".join(lines))
 
 
+def write_board(rows, blocks, template, network, path):
+    """Fill the standalone board template with today's numbers.
+
+    The board is regenerated from the same run that writes the CSVs, so the page
+    a person opens can never disagree with the briefs sitting beside it.
+    """
+    keep_row = ("address", "calls_12mo", "calls_total", "district", "community", "owner",
+                "tows", "vehicles_seen", "vehicles_distinct", "median_gap_days",
+                "last_call", "street", "block", "block_doorways_calling", "lat", "lon")
+    page_rows = []
+    for i, r in enumerate(rows):
+        page_rows.append({
+            "i": i, "a": r["address"].title(), "d": str(r["district"] or "?"),
+            "c": (r["community"] or "").title(), "st": (r["street"] or "").title(),
+            "bk": r["block"] or "", "nb": r.get("block_doorways_calling", 1),
+            "m": r["calls_12mo"], "t": r["calls_total"], "w": r["tows"],
+            "vd": r["vehicles_distinct"], "vs": r["vehicles_seen"],
+            "g": None if r["median_gap_days"] is None else round(r["median_gap_days"]),
+            "l": r["last_call"], "o": r["owner"] or "",
+            "lat": round(r["lat"], 6), "lon": round(r["lon"], 6),
+        })
+    page_blocks = []
+    for i, b in enumerate(blocks):
+        page_blocks.append({
+            "i": i, "bk": b["block"], "s": b["streets"].title(), "n": b["doorways"],
+            "m": b["calls_12mo"], "t": b["calls_total"], "w": b["tows"],
+            "dw": b["dwellings"], "r": b["calls_per_1k_dwellings"],
+            "d": str(b["district"] or "?"), "worst": b["worst_doorway"].title(),
+            "addrs": [a.strip().title() for a in b["addresses"].split(";") if a.strip()],
+        })
+    with open(template) as fh:
+        page = fh.read()
+    with open(network) as fh:
+        net = fh.read()
+    page = page.replace("__MAP__", net)
+    page = page.replace(
+        "__DATA__",
+        json.dumps({"rows": page_rows, "blocks": page_blocks}, separators=(",", ":")),
+    )
+    with open(path, "w") as fh:
+        fh.write(page)
+    return len(page)
+
+
 def write_block_brief(blocks, rows, path):
     listed = sum(b["doorways"] for b in blocks)
     lines = [
@@ -432,6 +476,10 @@ def main():
     ap.add_argument("--brief", default="out/watchlist.md")
     ap.add_argument("--block-csv", default="out/blocks.csv")
     ap.add_argument("--block-brief", default="out/blocks.md")
+    ap.add_argument("--board", default="out/triage-board.html",
+                    help="standalone page anyone can open in a browser")
+    ap.add_argument("--template", default="web/template.html")
+    ap.add_argument("--network", default="web/map-network.json")
     args = ap.parse_args()
 
     calls, fields = load(args.violation)
@@ -456,6 +504,12 @@ def main():
     if blocks:
         write_csv(blocks, args.block_csv)
         write_block_brief(blocks, rows, args.block_brief)
+
+    try:
+        size = write_board(rows, blocks, args.template, args.network, args.board)
+        print(f"wrote {args.board} ({size // 1024} KB)")
+    except FileNotFoundError as e:
+        print(f"skipped the board: {e.filename} is missing", file=sys.stderr)
 
     unmatched = sum(1 for r in rows if not r["block"])
     print(f"wrote {args.csv} and {args.brief} ({len(rows)} addresses)")
