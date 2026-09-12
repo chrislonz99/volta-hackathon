@@ -384,7 +384,7 @@ def write_brief(rows, calls, fields, violation, path, recur_days, latest):
         fh.write("\n".join(lines))
 
 
-def write_board(rows, blocks, template, network, path):
+def write_board(rows, blocks, calls, fields, latest, template, network, path):
     """Fill the standalone board template with today's numbers.
 
     The board is regenerated from the same run that writes the CSVs, so the page
@@ -418,11 +418,26 @@ def write_board(rows, blocks, template, network, path):
         page = fh.read()
     with open(network) as fh:
         net = fh.read()
-    page = page.replace("__MAP__", net)
-    page = page.replace(
-        "__DATA__",
-        json.dumps({"rows": page_rows, "blocks": page_blocks}, separators=(",", ":")),
-    )
+    # Header numbers come from the same run as the rows, never from the template.
+    total = len(calls)
+    tows = sum(1 for c in calls if fields[c["REQUEST_ID"]].get("Vehicle Was Towed") == "Y")
+    seen = sum(r["vehicles_seen"] for r in rows)
+    distinct = sum(r["vehicles_distinct"] for r in rows)
+    with_neighbour = sum(1 for r in rows if r.get("block_doorways_calling", 1) >= 2)
+    fills = {
+        "__LATEST__": latest.strftime("%Y-%m-%d"),
+        "__N_DOORWAYS__": f"{len(rows):,}",
+        "__N_BLOCKS__": f"{len(blocks):,}",
+        "__TOW_PCT__": f"{100 * tows / total:.1f}%" if total else "-",
+        "__UNIQUE_PCT__": f"{100 * distinct / seen:.0f}%" if seen else "-",
+        "__DISTINCT__": f"{distinct:,}",
+        "__SEEN__": f"{seen:,}",
+        "__WITH_NEIGHBOUR__": f"{with_neighbour:,}",
+        "__MAP__": net,
+        "__DATA__": json.dumps({"rows": page_rows, "blocks": page_blocks}, separators=(",", ":")),
+    }
+    for key, val in fills.items():
+        page = page.replace(key, val)
     with open(path, "w") as fh:
         fh.write(page)
     return len(page)
@@ -506,7 +521,7 @@ def main():
         write_block_brief(blocks, rows, args.block_brief)
 
     try:
-        size = write_board(rows, blocks, args.template, args.network, args.board)
+        size = write_board(rows, blocks, calls, fields, latest, args.template, args.network, args.board)
         print(f"wrote {args.board} ({size // 1024} KB)")
     except FileNotFoundError as e:
         print(f"skipped the board: {e.filename} is missing", file=sys.stderr)
