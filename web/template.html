@@ -176,6 +176,68 @@ canvas#cv{display:block;width:100%;height:100%}
   body{margin:0}
   img{max-width:100%}
   [hidden]{display:none!important}
+  /* Workspace layout: retain the existing visual language and data. */
+  .wrap{max-width:1520px;padding-bottom:48px}
+  header{padding:22px 0 18px}
+  .intro{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px 32px;align-items:start}
+  h1{font-size:clamp(34px,4vw,48px)}
+  .research{margin-top:12px;max-width:74ch}
+  .research summary{cursor:pointer;color:var(--ink-2);font-size:14px;width:fit-content}
+  .research .thesis{font-size:15px;margin:12px 0 0}
+  .stat{padding:10px 14px}
+  .banner{margin-top:16px}
+  .toolbar{margin:18px 0;display:grid;gap:12px}
+  .toolbar-top{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+  .modebar{margin:0}
+  .toolbar-top input{flex:1;min-width:180px;max-width:300px}
+  .district-filter{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .filter-label{font-family:"Barlow Condensed",sans-serif;font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+  .controls{padding:0;gap:12px}
+  .seg{flex-wrap:wrap}
+  .workspace{display:grid;grid-template-columns:minmax(240px,var(--map-width,55fr)) 20px minmax(280px,45fr);gap:0;align-items:start}
+  .splitter{position:sticky;top:16px;height:clamp(340px,56vh,580px);width:20px;border:0;background:transparent;cursor:col-resize;touch-action:none;display:grid;place-items:center;padding:0}
+  .splitter::after{content:"";width:4px;height:44px;border-radius:3px;background:var(--line-2)}
+  .splitter:hover::after,.splitter:focus-visible::after{background:var(--accent)}
+  body.resizing{cursor:col-resize;user-select:none}
+  .map-panel{position:sticky;top:16px}
+  .mapwrap{height:clamp(340px,56vh,580px)}
+  .map-notes{padding:12px 16px}
+  .map-notes .meta{margin:0}
+  .rows{margin-top:0;min-width:0;overflow-x:auto}
+  .rhead,.row{min-width:800px}
+  .rhead,.row{grid-template-columns:minmax(150px,1fr) 45px 64px 44px 64px 42px 60px 126px;gap:8px;padding:10px 12px}
+  .rhead.blockrow,.row.blockrow{grid-template-columns:minmax(150px,1fr) 50px 64px 44px 38px 65px 70px 170px}
+  .rhead .num{font-size:10px}
+  .row[aria-expanded="true"]{background:var(--accent-soft);box-shadow:inset 3px 0 var(--accent)}
+  .empty{padding:28px 16px;color:var(--muted);margin:0}
+  @media(max-width:1250px){
+    .intro{grid-template-columns:1fr}
+    .rows{overflow-x:auto}
+    .rhead,.row{min-width:800px}
+    .detail{min-width:0}
+  }
+  @media(min-width:769px) and (max-width:860px){
+    .rhead,.rhead.blockrow{display:grid}
+    .row .hideS{display:block}
+  }
+  @media(max-width:768px){
+    .workspace{grid-template-columns:1fr}
+    .splitter{display:none}
+    .map-panel{position:static}
+    .rows{overflow:hidden}
+    .rhead,.row{min-width:0}
+    .wrap{padding-left:14px;padding-right:14px}
+    .rhead,.rhead.blockrow{display:none}
+    .row,.row.blockrow{grid-template-columns:minmax(0,1fr) auto}
+    .row .addr{white-space:normal}
+    .pill{white-space:normal;max-width:150px}
+    .stats{width:100%;display:grid;grid-template-columns:1fr 1fr}
+    .stat:nth-child(2){border-right:0}
+    .stat:nth-child(-n+2){border-bottom:1px solid var(--line)}
+    .toolbar-top select,.toolbar-top input{max-width:none;min-width:0;width:100%;flex:auto}
+    .seg button{flex:1 1 auto}
+    .mapwrap{height:260px}
+  }
 </style>
 </head>
 <body>
@@ -183,23 +245,47 @@ canvas#cv{display:block;width:100%;height:100%}
 <div class="wrap">
 <header>
   <p class="eyebrow">Halifax Regional Municipality &middot; blocked driveway service requests &middot; open data to 2026-09-04</p>
+  <div class="intro">
+  <div>
   <h1>Blocks, not doorways</h1>
+  <details class="research">
+  <summary>Why blocks? Read the analysis</summary>
   <p class="thesis">A tow does not lower the chance a doorway calls again: <b>44.7 per cent against 44.6 per cent</b>.
   Across these addresses <b>2,473 of 2,588 recorded vehicles were different cars</b>. There is no repeat offender to
   deter, so the street is producing the violation. And <b>283 of the 363 doorways sit on a block where a neighbour is
   also still calling</b>, which means most of these are not a sign at one address. They are one block-wide problem
   counted many times.</p>
+  </details>
+  </div>
   <div class="stats">
     <div class="stat"><span class="n">363</span><span class="k">doorways still calling</span></div>
     <div class="stat"><span class="n">71</span><span class="k">blocks with 2+ calling</span></div>
     <div class="stat"><span class="n">4.6%</span><span class="k">ended in a tow</span></div>
     <div class="stat"><span class="n">96%</span><span class="k">of vehicles unique</span></div>
   </div>
-  <div class="banner" id="dbstate">Decisions are saved for everyone who opens this page. Connecting&hellip;</div>
+  </div>
+  <div class="banner" id="dbstate" role="status" hidden></div>
 </header>
 
-<div class="panels">
-  <section class="card">
+<section class="toolbar" aria-label="Filter map and list">
+  <div class="toolbar-top">
+    <div class="modebar" id="modebar">
+      <button type="button" data-mode="block">By block</button>
+      <button type="button" data-mode="door">By doorway</button>
+    </div>
+    <input type="search" id="q" placeholder="Find a street" aria-label="Find a street">
+    <select id="sort" aria-label="Sort the list"></select>
+    <span class="count" id="showing" aria-live="polite"></span>
+  </div>
+  <div class="district-filter">
+    <span class="filter-label">District</span>
+    <div class="dcols" id="dchips"></div>
+  </div>
+  <div class="controls"><div class="seg" id="statusfilter"></div></div>
+</section>
+
+<div class="workspace">
+  <section class="card map-panel">
     <h2 id="maptitle">Halifax street network</h2>
     <div class="body" style="padding:0">
       <div class="mapwrap" id="mapwrap">
@@ -215,11 +301,7 @@ canvas#cv{display:block;width:100%;height:100%}
         <div class="hit" id="hit"></div>
       </div>
     </div>
-  </section>
-  <section class="card">
-    <h2>District</h2>
-    <div class="body">
-      <div class="dcols" id="dchips"></div>
+    <div class="map-notes">
       <p class="meta" id="dsel">All districts</p>
       <div class="legend" style="margin-top:14px">
         <span><i class="dot" style="background:var(--hazard)"></i>Not triaged</span>
@@ -229,23 +311,12 @@ canvas#cv{display:block;width:100%;height:100%}
       </div>
     </div>
   </section>
-</div>
-
-<div class="modebar" id="modebar" style="margin-top:24px">
-  <button type="button" data-mode="block">By block</button>
-  <button type="button" data-mode="door">By doorway</button>
-</div>
-
-<div class="controls">
-  <div class="seg" id="statusfilter"></div>
-  <select id="sort" aria-label="Sort the list"></select>
-  <input type="search" id="q" placeholder="Find a street" aria-label="Find a street">
-  <span class="count" id="showing"></span>
-</div>
+  <button type="button" class="splitter" id="panel-resize" role="separator" aria-label="Resize map and table panels" aria-orientation="vertical" aria-valuemin="20" aria-valuemax="80" aria-valuenow="55" title="Drag to resize · Arrow keys to adjust · Double-click to reset"></button>
 
 <div class="rows">
   <div class="rhead" id="rhead"></div>
   <div id="list"></div>
+</div>
 </div>
 
 <footer>
@@ -307,6 +378,40 @@ let mode = "block", openKey = null, selected = null;
 let f = {district:null, status:"all", sort:"n", q:""};
 
 const el = id => document.getElementById(id);
+const workspace = document.querySelector(".workspace");
+const splitter = el("panel-resize");
+let panelRatio = .55;
+function sizePanels(ratio){
+  const available = workspace.clientWidth - 20;
+  if (available <= 0 || window.innerWidth <= 768) return;
+  const min = Math.max(.2,240/available), max = Math.min(.8,1-280/available);
+  panelRatio = Math.max(min,Math.min(max,ratio));
+  workspace.style.setProperty("--map-width", `${available*panelRatio}px`);
+  splitter.setAttribute("aria-valuemin",Math.round(min*100));
+  splitter.setAttribute("aria-valuemax",Math.round(max*100));
+  splitter.setAttribute("aria-valuenow",Math.round(panelRatio*100));
+  splitter.setAttribute("aria-valuetext",`Map ${Math.round(panelRatio*100)} percent`);
+}
+splitter.onpointerdown = e => {
+  if(e.button !== 0) return;
+  e.preventDefault(); splitter.focus(); splitter.setPointerCapture(e.pointerId);
+  document.body.classList.add("resizing");
+};
+splitter.onpointermove = e => {
+  if(!splitter.hasPointerCapture(e.pointerId)) return;
+  sizePanels((e.clientX-workspace.getBoundingClientRect().left-10)/(workspace.clientWidth-20));
+};
+const endResize = () => document.body.classList.remove("resizing");
+splitter.onpointerup = e => {if(splitter.hasPointerCapture(e.pointerId)) splitter.releasePointerCapture(e.pointerId);endResize();};
+splitter.onpointercancel = endResize;
+splitter.onlostpointercapture = endResize;
+splitter.ondblclick = () => sizePanels(.55);
+splitter.onkeydown = e => {
+  if(!["ArrowLeft","ArrowRight","Home","End"].includes(e.key)) return;
+  e.preventDefault();
+  sizePanels(e.key==="Home"?0:e.key==="End"?1:panelRatio+(e.key==="ArrowLeft"?-.03:.03));
+};
+new ResizeObserver(()=>sizePanels(panelRatio)).observe(workspace);
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
 ROWS.forEach(r => r.key = "d:" + slug(r.a));
 BLOCKS.forEach(b => b.key = "b:" + b.bk);
@@ -667,6 +772,12 @@ function render(){
     if (openKey === it.key) frag.appendChild(detail(it, s, V));
   }
   list.appendChild(frag);
+  if (!v.length){
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "No matches. Try another street, district or status.";
+    list.appendChild(empty);
+  }
   draw(); chips();
 }
 function scrollToOpen(){
@@ -759,7 +870,7 @@ async function save(it, status, note, quiet){
   try { await db.doc("decisions/" + it.key.replace(":", "-")).set(rec); }
   catch(e){ note2("Could not save that decision: " + (e && e.code ? e.code : "unknown error") + "."); }
 }
-const note2 = msg => { el("dbstate").textContent = msg; };
+const note2 = msg => { el("dbstate").textContent = msg; el("dbstate").hidden = !msg; };
 
 /* ---------- chrome ---------- */
 function chips(){
@@ -863,7 +974,7 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
     const n = Object.keys(DEC).length;
     note2(n
       ? `${n} decision${n===1?"":"s"} restored from this browser. This copy saves locally only, so nobody else sees them.`
-      : "This copy saves decisions in your browser only. The published page shares them with your whole team.");
+      : "");
     render();
     return;
   }
