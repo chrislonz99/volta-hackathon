@@ -1,12 +1,12 @@
 # Doorways enforcement cannot fix: alleged violation matching 'Driveway'
 
 Source: HRM open data. Cityworks Service Requests joined to Cityworks Service Requests Custom Fields.
-Most recent call in the data: 2026-10-30.
+Most recent call in the data: 2026-11-06.
 
-- Calls in scope: 10,117.
+- Calls in scope: 10,162.
 - Calls that ended in a tow: 459 (4.5 per cent).
-- Addresses below, each still calling in the last 12 months: 342.
-- Distinct vehicles at those addresses: 2,294 across 2,406 calls (95 per cent unique).
+- Addresses below, each still calling in the last 12 months: 340.
+- Distinct vehicles at those addresses: 2,306 across 2,418 calls (95 per cent unique).
 
 Each row is a doorway that keeps generating calls.
 Nearly every call is a different vehicle, so there is no repeat offender to deter.
@@ -19,45 +19,45 @@ block is the problem and out/blocks.md is the list to work from instead.
 | # | Address | Calls 12mo | Calls all time | Tows | Distinct vehicles | Median gap | Last call | On this block | District |
 |---|---------|-----------:|---------------:|-----:|------------------:|-----------:|-----------|--------------:|----------|
 | 1 | 5285 SACKVILLE ST | 24 | 79 | 3 | 74 of 76 | 8 d | 2026-10-15 | 7 | 7 |
-| 2 | 57 KING ST | 16 | 21 | 2 | 19 of 20 | 12 d | 2026-09-11 | 16 | 5 |
-| 3 | 54 HILDEN DR | 14 | 20 | 0 | 11 of 18 | 13 d | 2026-10-14 | 2 | 11 |
-| 4 | 1323 BIRMINGHAM ST | 14 | 68 | 2 | 65 of 67 | 15 d | 2026-10-19 | 4 | 7 |
-| 5 | 19 PORTLAND ST | 13 | 42 | 0 | 38 of 41 | 25 d | 2026-10-12 | 16 | 5 |
-| 6 | 2680 GOTTINGEN ST | 12 | 17 | 0 | 16 of 16 | 16 d | 2026-10-25 | 1 | 8 |
+| 2 | 54 HILDEN DR | 15 | 21 | 0 | 12 of 19 | 15 d | 2026-11-01 | 2 | 11 |
+| 3 | 57 KING ST | 16 | 21 | 2 | 19 of 20 | 12 d | 2026-09-11 | 15 | 5 |
+| 4 | 19 PORTLAND ST | 14 | 43 | 0 | 39 of 42 | 24 d | 2026-11-06 | 15 | 5 |
+| 5 | 1323 BIRMINGHAM ST | 14 | 68 | 2 | 65 of 67 | 15 d | 2026-10-19 | 4 | 7 |
+| 6 | 2680 GOTTINGEN ST | 12 | 18 | 0 | 17 of 17 | 15 d | 2026-11-01 | 1 | 8 |
 | 7 | 918 SOUTH BLAND ST | 12 | 42 | 3 | 39 of 39 | 26 d | 2026-08-20 | 7 | 7 |
 | 8 | 1325 HOLLIS ST | 11 | 70 | 0 | 65 of 69 | 15 d | 2026-09-26 | 3 | 7 |
-| 9 | 4 GLENWOOD AVE | 11 | 13 | 0 | 11 of 12 | 6 d | 2026-09-29 | 5 | 6 |
-| 10 | 5300 TOBIN ST | 11 | 32 | 2 | 23 of 26 | 23 d | 2026-08-23 | 3 | 7 |
-| 11 | 6174 ALMON ST | 11 | 14 | 1 | 12 of 12 | 25 d | 2026-10-15 | 6 | 8 |
-| 12 | 8A JOHN ST | 10 | 12 | 0 | 11 of 12 | 20 d | 2026-09-28 | 3 | 5 |
-| 13 | 5733 MCCULLY ST | 8 | 11 | 0 | 11 of 11 | 82 d | 2026-10-30 | 5 | 8 |
-| 14 | 2428 AGRICOLA ST | 8 | 9 | 0 | 8 of 8 | 12 d | 2026-04-10 | 8 | 8 |
-| 15 | 70 OCHTERLONEY ST | 8 | 64 | 2 | 60 of 63 | 16 d | 2026-04-18 | 16 | 5 |
-| 16 | 5658 ALMON ST | 7 | 16 | 0 | 14 of 14 | 22 d | 2026-01-01 | 4 | 8 |
-| 17 | 1565 SOUTH PARK ST | 7 | 30 | 0 | 28 of 29 | 42 d | 2026-10-29 | 1 | 7 |
-| 18 | 235 WILLETT ST | 7 | 7 | 0 | 6 of 6 | 8 d | 2026-05-06 | 1 | 10 |
-| 19 | 101 WENTWORTH DR | 7 | 7 | 0 | 4 of 7 | 2 d | 2026-09-15 | 1 | 10 |
-| 20 | 6036 SOUTH ST | 7 | 22 | 1 | 21 of 22 | 52 d | 2026-10-20 | 4 | 7 |
-| 21 | 1244 ROBIE ST | 7 | 14 | 1 | 13 of 13 | 22 d | 2026-08-10 | 3 | 7 |
+| 9 | 5300 TOBIN ST | 11 | 32 | 2 | 23 of 26 | 23 d | 2026-08-23 | 3 | 7 |
+| 10 | 6174 ALMON ST | 11 | 14 | 1 | 12 of 12 | 25 d | 2026-10-15 | 7 | 8 |
+| 11 | 8A JOHN ST | 10 | 12 | 0 | 11 of 12 | 20 d | 2026-09-28 | 3 | 5 |
+| 12 | 4 GLENWOOD AVE | 10 | 13 | 0 | 11 of 12 | 6 d | 2026-09-29 | 5 | 6 |
+| 13 | 2428 AGRICOLA ST | 8 | 9 | 0 | 8 of 8 | 12 d | 2026-04-10 | 8 | 8 |
+| 14 | 70 OCHTERLONEY ST | 8 | 64 | 2 | 60 of 63 | 16 d | 2026-04-18 | 15 | 5 |
+| 15 | 1565 SOUTH PARK ST | 7 | 30 | 0 | 28 of 29 | 42 d | 2026-10-29 | 1 | 7 |
+| 16 | 5733 MCCULLY ST | 7 | 11 | 0 | 11 of 11 | 82 d | 2026-10-30 | 4 | 8 |
+| 17 | 235 WILLETT ST | 7 | 7 | 0 | 6 of 6 | 8 d | 2026-05-06 | 1 | 10 |
+| 18 | 101 WENTWORTH DR | 7 | 7 | 0 | 4 of 7 | 2 d | 2026-09-15 | 1 | 10 |
+| 19 | 6036 SOUTH ST | 7 | 22 | 1 | 21 of 22 | 52 d | 2026-10-20 | 4 | 7 |
+| 20 | 1244 ROBIE ST | 7 | 14 | 1 | 13 of 13 | 22 d | 2026-08-10 | 3 | 7 |
+| 21 | 5658 ALMON ST | 6 | 16 | 0 | 14 of 14 | 22 d | 2026-01-01 | 4 | 8 |
 | 22 | 34 CRAIGMORE DR | 6 | 8 | 0 | 7 of 7 | 26 d | 2026-05-15 | 1 | 9 |
 | 23 | 5270 TOBIN ST | 6 | 28 | 0 | 23 of 25 | 50 d | 2026-09-09 | 3 | 7 |
-| 24 | 220 SPENCER AVE | 6 | 7 | 0 | 4 of 6 | 6 d | 2026-02-12 | 1 | 11 |
-| 25 | 20 DAWSON ST | 6 | 12 | 0 | 10 of 11 | 5 d | 2026-05-01 | 3 | 5 |
-| 26 | 29 BRULE ST | 6 | 6 | 0 | 6 of 6 | 56 d | 2026-10-20 | 3 | 5 |
-| 27 | 22 EDWARD ST | 6 | 50 | 2 | 48 of 49 | 19 d | 2026-08-04 | 2 | 5 |
-| 28 | 1749 ARGYLE ST | 6 | 40 | 2 | 36 of 38 | 22 d | 2026-04-15 | 7 | 7 |
-| 29 | 3139 AGRICOLA ST | 6 | 28 | 2 | 28 of 28 | 67 d | 2026-09-02 | 5 | 8 |
-| 30 | 5675 CUNARD ST | 6 | 11 | 1 | 11 of 11 | 43 d | 2026-09-28 | 4 | 8 |
-| 31 | 6170 WINDSOR TERR | 5 | 19 | 0 | 17 of 18 | 36 d | 2026-10-30 | 6 | 8 |
-| 32 | 1336 BIRMINGHAM ST | 5 | 16 | 0 | 16 of 16 | 88 d | 2026-08-19 | 4 | 7 |
-| 33 | 5844 MACARA ST | 5 | 18 | 0 | 17 of 18 | 50 d | 2026-09-20 | 5 | 8 |
-| 34 | 52 IRISHTOWN RD | 5 | 10 | 0 | 10 of 10 | 67 d | 2026-07-09 | 16 | 5 |
-| 35 | 5737 MCCULLY ST | 5 | 21 | 0 | 20 of 20 | 38 d | 2026-10-22 | 5 | 8 |
-| 36 | 2499 ST MATTHIAS ST | 5 | 15 | 0 | 15 of 15 | 47 d | 2026-08-14 | 6 | 9 |
-| 37 | 569 WASHMILL LAKE DR | 5 | 8 | 0 | 8 of 8 | 70 d | 2026-06-30 | 1 | 12 |
-| 38 | 5530 BILBY ST | 5 | 19 | 0 | 18 of 18 | 18 d | 2026-09-03 | 4 | 8 |
-| 39 | 23 CHELSEA LANE | 5 | 10 | 0 | 8 of 10 | 12 d | 2026-03-06 | 2 | 10 |
-| 40 | 213 NADIA DR | 5 | 6 | 0 | 4 of 6 | 42 d | 2026-10-07 | 4 | 5 |
+| 24 | 20 DAWSON ST | 6 | 12 | 0 | 10 of 11 | 5 d | 2026-05-01 | 3 | 5 |
+| 25 | 29 BRULE ST | 6 | 6 | 0 | 6 of 6 | 56 d | 2026-10-20 | 3 | 5 |
+| 26 | 22 EDWARD ST | 6 | 50 | 2 | 48 of 49 | 19 d | 2026-08-04 | 2 | 5 |
+| 27 | 1749 ARGYLE ST | 6 | 40 | 2 | 36 of 38 | 22 d | 2026-04-15 | 7 | 7 |
+| 28 | 5675 CUNARD ST | 6 | 11 | 1 | 11 of 11 | 43 d | 2026-09-28 | 4 | 8 |
+| 29 | 6170 WINDSOR TERR | 5 | 19 | 0 | 17 of 18 | 36 d | 2026-10-30 | 7 | 8 |
+| 30 | 1336 BIRMINGHAM ST | 5 | 16 | 0 | 16 of 16 | 88 d | 2026-08-19 | 4 | 7 |
+| 31 | 5844 MACARA ST | 5 | 18 | 0 | 17 of 18 | 50 d | 2026-09-20 | 5 | 8 |
+| 32 | 52 IRISHTOWN RD | 5 | 10 | 0 | 10 of 10 | 67 d | 2026-07-09 | 15 | 5 |
+| 33 | 5737 MCCULLY ST | 5 | 21 | 0 | 20 of 20 | 38 d | 2026-10-22 | 4 | 8 |
+| 34 | 2499 ST MATTHIAS ST | 5 | 15 | 0 | 15 of 15 | 47 d | 2026-08-14 | 6 | 9 |
+| 35 | 569 WASHMILL LAKE DR | 5 | 8 | 0 | 8 of 8 | 70 d | 2026-06-30 | 1 | 12 |
+| 36 | 5530 BILBY ST | 5 | 19 | 0 | 18 of 18 | 18 d | 2026-09-03 | 4 | 8 |
+| 37 | 23 CHELSEA LANE | 5 | 10 | 0 | 8 of 10 | 12 d | 2026-03-06 | 1 | 10 |
+| 38 | 213 NADIA DR | 5 | 6 | 0 | 4 of 6 | 42 d | 2026-10-07 | 4 | 5 |
+| 39 | 2666 KING ST | 5 | 7 | 0 | 5 of 5 | 66 d | 2026-09-10 | 7 | 8 |
+| 40 | 1872 GARDEN ST | 5 | 7 | 0 | 7 of 7 | 76 d | 2026-08-04 | 6 | 9 |
 
 Repeat means another call at the same address within 365 days.
 A tow is the outcome the city recorded. HRM publishes no ticketing field, so a
